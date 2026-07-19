@@ -22,7 +22,7 @@ if config.config_file_name is not None:
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
 from app.db.base import Base
-from app.models.access_key import AccessKey
+from app.models.access_key import AccessKey  # noqa: F401
 
 
 target_metadata = Base.metadata

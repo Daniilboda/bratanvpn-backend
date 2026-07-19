@@ -14,6 +14,7 @@ router = APIRouter()
 class ActivationRequest(BaseModel):
     access_key: str
     device_id: str
+    vpn_public_key: str
 
 @router.post("/activate")
 async def activate(
@@ -24,18 +25,19 @@ async def activate(
         session=session,
         access_key=request.access_key,
         device_id=request.device_id,
+        vpn_public_key=request.vpn_public_key,
     )
 
     if result == "not_found":
         raise HTTPException(
             status_code=404,
             detail="Access key not found",
-    )
+        )
 
-    if result == "already_activated":
+    if result == "revoked":
         raise HTTPException(
-            status_code=409,
-            detail="Access key is already activated on this device",
+            status_code=403,
+            detail="Access key is revoked",
         )
 
     if result == "device_mismatch":
@@ -44,6 +46,8 @@ async def activate(
             detail="Access key is activated on another device",
         )
 
-    return {
-        "message": "Access key activated successfully",
-    }
+    if isinstance(result, dict):
+        return {
+            "message": "Access key activated successfully",
+            "vpn_ip": result["vpn_ip"],
+        }

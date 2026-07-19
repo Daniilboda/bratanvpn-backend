@@ -75,6 +75,9 @@ async def revoke_access_key(
         return "already_revoked"
 
     key_from_db.status = "revoked"
+    key_from_db.vpn_ip = None
+    key_from_db.vpn_public_key = None
+    key_from_db.device_id = None
 
     await session.commit()
     await session.refresh(key_from_db)
