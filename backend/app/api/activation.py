@@ -1,7 +1,6 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
-
 
 from app.db.session import get_db
 from app.services.activation_service import activate_access_key
@@ -10,11 +9,11 @@ from app.services.activation_service import activate_access_key
 router = APIRouter()
 
 
-
 class ActivationRequest(BaseModel):
     access_key: str
     device_id: str
     vpn_public_key: str
+
 
 @router.post("/activate")
 async def activate(
@@ -44,6 +43,12 @@ async def activate(
         raise HTTPException(
             status_code=403,
             detail="Access key is activated on another device",
+        )
+
+    if result == "vpn_agent_failed":
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to provision VPN on server",
         )
 
     if isinstance(result, dict):

@@ -1,10 +1,9 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from app.core.security import verify_admin_key
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 
 from app.db.session import get_db
-from app.services.access_key_service import create_access_key
 from app.services.access_key_service import (
     create_access_key,
     get_access_key,
@@ -45,6 +44,12 @@ async def revoke_key(
         session=session,
         key=request.key,
     )
+
+    if result == "vpn_agent_failed":
+        raise HTTPException(
+            status_code=502,
+            detail="Failed to remove VPN peer on server",
+        )
 
     return {
         "status": result,

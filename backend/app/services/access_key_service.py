@@ -4,6 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.models.access_key import AccessKey
 from app.models.enums import AccessKeyStatus
+from app.services.vpn_agent_client import VpnAgentError, remove_peer_async
 
 
 def generate_access_key() -> str:
@@ -73,6 +74,14 @@ async def revoke_access_key(
 
     if key_from_db.status == AccessKeyStatus.REVOKED:
         return "already_revoked"
+
+    public_key = key_from_db.vpn_public_key
+
+    if public_key is not None:
+        try:
+            await remove_peer_async(public_key)
+        except VpnAgentError:
+            return "vpn_agent_failed"
 
     key_from_db.status = "revoked"
     key_from_db.vpn_ip = None

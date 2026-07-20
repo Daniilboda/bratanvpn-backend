@@ -44,3 +44,8 @@ alembic/versions/__pycache__/
 
 # Docker
 *.pid
+
+# Local VPN tunnel test (contains private key — never commit)
+backend/local-tunnel-test.conf
+backend/local-tunnel-test.meta.txt
+backend/_tmp_*.py

@@ -26,6 +26,13 @@ class Settings(BaseSettings):
     vpn_h4: int
     vpn_i1: str = ""
 
+    vpn_agent_mode: str = "ssh"
+    vpn_agent_path: str = "/usr/local/sbin/bratanvpn-awg-agent"
+    vpn_agent_ssh_host: str
+    vpn_agent_ssh_user: str = "root"
+    vpn_agent_ssh_password: str | None = None
+    vpn_agent_ssh_port: int = 22
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
