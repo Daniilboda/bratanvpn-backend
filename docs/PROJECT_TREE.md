@@ -8,11 +8,6 @@
 
 Подробный разбор и пометки фреймворков: [`ARCHITECTURE_MAP.md`](ARCHITECTURE_MAP.md)
 
-PDF-версии:
-
-- [`PROJECT_TREE.pdf`](PROJECT_TREE.pdf) — дерево с описаниями (альбомная ориентация)
-- [`ARCHITECTURE_MAP.pdf`](ARCHITECTURE_MAP.pdf) — полная карта архитектуры
-
 ---
 
 ```text
