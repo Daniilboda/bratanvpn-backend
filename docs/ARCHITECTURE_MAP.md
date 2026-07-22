@@ -9,6 +9,8 @@
 Дата составления: 2026-07-22  
 Репозиторий: `https://github.com/Daniilboda/bratanvpn-backend.git`
 
+**Дерево проекта (обязательный артефакт):** [`PROJECT_TREE.md`](PROJECT_TREE.md)
+
 ---
 
 ## 1. Общая схема системы
@@ -32,15 +34,174 @@
 
 ---
 
-## 2. Дерево верхнего уровня
+## 2. Дерево проекта (полное)
+
+Ниже — полное дерево файлов репозитория. То же содержимое вынесено в отдельный файл [`PROJECT_TREE.md`](PROJECT_TREE.md).
+
+**Не показаны:** `.git/`, `.env`, `.venv/`, `build/`, `.dart_tool/`, `ephemeral/`, `__pycache__/`, `local-tunnel-test.*`, `info for PROMPTING/`.
+
+```text
+bratanvpn/
+├── .cursor/
+│   └── rules/
+│       ├── bratanvpn.mdc
+│       └── dialogue.mdc
+├── .vscode/
+│   └── settings.json
+├── apps/
+│   └── client/
+│       ├── android/
+│       │   ├── app/
+│       │   │   ├── src/
+│       │   │   │   ├── debug/
+│       │   │   │   │   └── AndroidManifest.xml
+│       │   │   │   ├── main/
+│       │   │   │   │   ├── java/
+│       │   │   │   │   │   └── io/
+│       │   │   │   │   │       └── flutter/
+│       │   │   │   │   │           └── plugins/
+│       │   │   │   │   │               └── GeneratedPluginRegistrant.java
+│       │   │   │   │   ├── kotlin/
+│       │   │   │   │   │   └── com/
+│       │   │   │   │   │       └── bratanvpn/
+│       │   │   │   │   │           └── client/
+│       │   │   │   │   │               └── MainActivity.kt
+│       │   │   │   │   ├── res/
+│       │   │   │   │   │   ├── drawable/
+│       │   │   │   │   │   │   └── launch_background.xml
+│       │   │   │   │   │   ├── drawable-v21/
+│       │   │   │   │   │   │   └── launch_background.xml
+│       │   │   │   │   │   ├── mipmap-hdpi/
+│       │   │   │   │   │   │   └── ic_launcher.png
+│       │   │   │   │   │   ├── mipmap-mdpi/
+│       │   │   │   │   │   │   └── ic_launcher.png
+│       │   │   │   │   │   ├── mipmap-xhdpi/
+│       │   │   │   │   │   │   └── ic_launcher.png
+│       │   │   │   │   │   ├── mipmap-xxhdpi/
+│       │   │   │   │   │   │   └── ic_launcher.png
+│       │   │   │   │   │   ├── mipmap-xxxhdpi/
+│       │   │   │   │   │   │   └── ic_launcher.png
+│       │   │   │   │   │   ├── values/
+│       │   │   │   │   │   │   └── styles.xml
+│       │   │   │   │   │   └── values-night/
+│       │   │   │   │   │       └── styles.xml
+│       │   │   │   │   └── AndroidManifest.xml
+│       │   │   │   └── profile/
+│       │   │   │       └── AndroidManifest.xml
+│       │   │   └── build.gradle.kts
+│       │   ├── gradle/
+│       │   │   └── wrapper/
+│       │   │       ├── gradle-wrapper.jar
+│       │   │       └── gradle-wrapper.properties
+│       │   ├── .gitignore
+│       │   ├── build.gradle.kts
+│       │   ├── client_android.iml
+│       │   ├── gradle.properties
+│       │   ├── gradlew
+│       │   ├── gradlew.bat
+│       │   └── settings.gradle.kts
+│       ├── lib/
+│       │   ├── services/
+│       │   │   ├── activation_api.dart
+│       │   │   └── api_config.dart
+│       │   └── main.dart
+│       ├── test/
+│       │   └── widget_test.dart
+│       ├── windows/
+│       │   ├── flutter/
+│       │   │   ├── CMakeLists.txt
+│       │   │   ├── generated_plugin_registrant.cc
+│       │   │   ├── generated_plugin_registrant.h
+│       │   │   └── generated_plugins.cmake
+│       │   ├── runner/
+│       │   │   ├── resources/
+│       │   │   │   └── app_icon.ico
+│       │   │   ├── CMakeLists.txt
+│       │   │   ├── flutter_window.cpp
+│       │   │   ├── flutter_window.h
+│       │   │   ├── main.cpp
+│       │   │   ├── resource.h
+│       │   │   ├── runner.exe.manifest
+│       │   │   ├── Runner.rc
+│       │   │   ├── utils.cpp
+│       │   │   ├── utils.h
+│       │   │   ├── win32_window.cpp
+│       │   │   └── win32_window.h
+│       │   ├── .gitignore
+│       │   └── CMakeLists.txt
+│       ├── .gitignore
+│       ├── .metadata
+│       ├── analysis_options.yaml
+│       ├── client.iml
+│       ├── pubspec.lock
+│       ├── pubspec.yaml
+│       └── README.md
+├── backend/
+│   ├── alembic/
+│   │   ├── versions/
+│   │   │   ├── 17a448b79be1_add_vpn_clients_table.py
+│   │   │   ├── 7b25f5a14fc7_initial_migration.py
+│   │   │   └── a3f2c8d91e04_move_vpn_fields_to_access_keys.py
+│   │   ├── env.py
+│   │   ├── README
+│   │   └── script.py.mako
+│   ├── app/
+│   │   ├── api/
+│   │   │   ├── __init__.py
+│   │   │   ├── activation.py
+│   │   │   ├── admin_keys.py
+│   │   │   ├── validation.py
+│   │   │   └── vpn_config.py
+│   │   ├── core/
+│   │   │   ├── __init__.py
+│   │   │   ├── config.py
+│   │   │   └── security.py
+│   │   ├── db/
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py
+│   │   │   ├── init_db.py
+│   │   │   └── session.py
+│   │   ├── models/
+│   │   │   ├── access_key.py
+│   │   │   └── enums.py
+│   │   ├── services/
+│   │   │   ├── __init__.py
+│   │   │   ├── access_key_service.py
+│   │   │   ├── activation_service.py
+│   │   │   ├── vpn_agent_client.py
+│   │   │   └── vpn_service.py
+│   │   ├── __init__.py
+│   │   └── main.py
+│   ├── .env.example
+│   ├── alembic.ini
+│   └── pyproject.toml
+├── docs/
+│   ├── ACCESS_KEY_HASHING_DEFERRED.md
+│   ├── ARCHITECTURE_MAP.md
+│   ├── BratanVPN_security.xlsx
+│   ├── BratanVPN_speed_compare.xlsx
+│   ├── BratanVPN_status.xlsx
+│   ├── CHATGPT_PROJECT_CONTEXT.md
+│   └── PROJECT_TREE.md
+├── infrastructure/
+├── server/
+│   └── amneziawg/
+│       ├── bratanvpn-awg-agent.sh
+│       └── README.md
+├── .gitignore
+├── docker-compose.yml
+└── README.md
+```
+
+### 2.1. Назначение папок верхнего уровня
 
 | Путь | Назначение |
 |------|------------|
 | `apps/` | Клиентские приложения (сейчас только Flutter) |
 | `backend/` | FastAPI API, SQLAlchemy, Alembic, настройки |
 | `server/` | Скрипты/агенты для хоста VPS (AmneziaWG) |
-| `docs/` | Документация, статусы, security/speed таблицы |
-| `infrastructure/` | Зарезервировано под compose/env (пока пусто или не используется; compose лежит в корне) |
+| `docs/` | Документация, статусы, security/speed таблицы, дерево проекта |
+| `infrastructure/` | Зарезервировано под compose/env (пока пусто; compose лежит в корне) |
 | `.cursor/rules/` | Правила для AI/разработки в Cursor |
 | `docker-compose.yml` | Локальный PostgreSQL |
 | `README.md` | Краткое описание репозитория |
@@ -88,6 +249,7 @@
 | Файл | Назначение | Происхождение |
 |------|------------|---------------|
 | `ARCHITECTURE_MAP.md` | Этот документ — карта папок/файлов | **Создан проектом** |
+| `PROJECT_TREE.md` | Полное дерево файлов репозитория | **Создан проектом** |
 | `CHATGPT_PROJECT_CONTEXT.md` | Контекст проекта для внешних AI / онбординг | **Создан проектом** |
 | `ACCESS_KEY_HASHING_DEFERRED.md` | Решение: хэш access key отложен до прода | **Создан проектом** |
 | `BratanVPN_status.xlsx` | Трекер задач MVP (сделано / осталось) | **Создан проектом**, периодически обновляется |
@@ -308,7 +470,8 @@ Flutter UI (main.dart)
 
 Связанные документы:
 
-- Статус задач: `BratanVPN_status.xlsx`  
-- Безопасность: `BratanVPN_security.xlsx`  
-- Скорость: `BratanVPN_speed_compare.xlsx`  
+- Дерево проекта: `PROJECT_TREE.md`
+- Статус задач: `BratanVPN_status.xlsx`
+- Безопасность: `BratanVPN_security.xlsx`
+- Скорость: `BratanVPN_speed_compare.xlsx`
 - Контекст AI: `CHATGPT_PROJECT_CONTEXT.md`
