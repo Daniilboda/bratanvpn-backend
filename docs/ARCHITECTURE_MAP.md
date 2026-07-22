@@ -9,7 +9,9 @@
 Дата составления: 2026-07-22  
 Репозиторий: `https://github.com/Daniilboda/bratanvpn-backend.git`
 
-**Дерево проекта (обязательный артефакт):** [`PROJECT_TREE.md`](PROJECT_TREE.md)
+**Дерево проекта (обязательный артефакт):** [`PROJECT_TREE.md`](PROJECT_TREE.md) · [`PROJECT_TREE.pdf`](PROJECT_TREE.pdf)
+
+**PDF этой карты:** [`ARCHITECTURE_MAP.pdf`](ARCHITECTURE_MAP.pdf)
 
 ---
 
@@ -36,9 +38,9 @@
 
 ## 2. Дерево проекта (полное)
 
-Ниже — полное дерево файлов репозитория. То же содержимое вынесено в отдельный файл [`PROJECT_TREE.md`](PROJECT_TREE.md).
+Полное дерево **с кратким описанием каждого файла** — в [`PROJECT_TREE.md`](PROJECT_TREE.md) и удобном PDF [`PROJECT_TREE.pdf`](PROJECT_TREE.pdf).
 
-**Не показаны:** `.git/`, `.env`, `.venv/`, `build/`, `.dart_tool/`, `ephemeral/`, `__pycache__/`, `local-tunnel-test.*`, `info for PROMPTING/`.
+Ниже — компактная копия структуры (без длинных описаний). Актуальные описания всегда смотри в `PROJECT_TREE.md` / `.pdf`.
 
 ```text
 bratanvpn/
