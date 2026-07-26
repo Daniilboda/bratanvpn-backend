@@ -49,3 +49,7 @@ alembic/versions/__pycache__/
 backend/local-tunnel-test.conf
 backend/local-tunnel-test.meta.txt
 backend/_tmp_*.py
+
+# Local notes with secrets (Admin API key, etc.)
+*.local.txt
+docs/*.local.txt

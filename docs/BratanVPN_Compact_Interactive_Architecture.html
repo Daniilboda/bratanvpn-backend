@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>BratanVPN — компактная архитектура</title>
+<style>
+:root {
+  --bg:#111318; --panel:#181b21; --text:#eef2f6; --muted:#a8b0bc;
+  --green:#183f22; --green-border:#2f8f46;
+  --yellow:#463708; --yellow-border:#c89d10;
+  --blue:#15335f; --blue-border:#3b82f6;
+  --gray:#262a31; --gray-border:#5e6672;
+  --line:#353b45;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--text);font-family:Segoe UI,Arial,sans-serif}
+header{
+  position:sticky;top:0;z-index:20;background:rgba(17,19,24,.97);
+  border-bottom:1px solid var(--line);padding:10px 14px;
+}
+.top{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+h1{font-size:18px;margin:0 8px 0 0}
+.toolbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+button,input{
+  border:1px solid var(--line);background:var(--panel);color:var(--text);
+  border-radius:6px;padding:6px 9px;font-size:12px
+}
+button{cursor:pointer}
+button.active{outline:2px solid currentColor}
+.cleanBtn{color:#80e493} .modifiedBtn{color:#ffd45c} .projectBtn{color:#8fc0ff}
+input{min-width:230px}
+main{padding:10px 14px 24px}
+.legend{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;font-size:11px}
+.legend span{padding:4px 7px;border-radius:5px;border:1px solid var(--line);cursor:pointer}
+.lg-clean{background:var(--green)} .lg-modified{background:var(--yellow)} .lg-project{background:var(--blue)}
+.tree{font-family:Consolas,"Cascadia Code",monospace;font-size:11px;line-height:1.12}
+.node{margin:1px 0}
+.row{
+  display:grid;grid-template-columns:16px 15px minmax(180px,auto) 1fr;
+  gap:5px;align-items:start;padding:2px 5px;border-radius:3px;border-left:3px solid transparent;
+  min-height:20px;
+}
+.row.directory{background:var(--gray);border-left-color:var(--gray-border)}
+.row.framework-clean{background:var(--green);border-left-color:var(--green-border)}
+.row.framework-modified{background:var(--yellow);border-left-color:var(--yellow-border)}
+.row.project{background:var(--blue);border-left-color:var(--blue-border)}
+.row:hover{filter:brightness(1.08)}
+.toggle{padding:0;border:0;background:transparent;font-size:11px;line-height:16px}
+.icon{font-size:11px;line-height:16px}
+.name{font-weight:700;overflow-wrap:anywhere}
+.desc{color:var(--muted);font-family:Segoe UI,Arial,sans-serif;overflow-wrap:anywhere}
+.changes{grid-column:3/5;color:#ffe79a;font-family:Segoe UI,Arial,sans-serif;font-size:10px;padding:2px 0 1px}
+.children{margin-left:15px;border-left:1px dotted #46505d;padding-left:6px}
+.hidden{display:none!important}
+.dim{opacity:.22}
+@media (max-width:900px){
+  .row{grid-template-columns:16px 15px minmax(150px,42%) 1fr}
+  .tree{font-size:10px}
+}
+@media (max-width:650px){
+  .row{grid-template-columns:14px 14px 1fr}
+  .desc{grid-column:3}
+  .changes{grid-column:3}
+  input{min-width:100%}
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <h1>BratanVPN — архитектура</h1>
+    <div class="toolbar">
+      <button class="active" data-filter="all" onclick="setFilter('all')">Все</button>
+      <button class="cleanBtn" data-filter="framework-clean" onclick="setFilter('framework-clean')">Без изменений</button>
+      <button class="modifiedBtn" data-filter="framework-modified" onclick="setFilter('framework-modified')">С изменениями</button>
+      <button class="projectBtn" data-filter="project" onclick="setFilter('project')">Проектные</button>
+      <button onclick="expandAll()">Раскрыть</button>
+      <button onclick="collapseAll()">Свернуть</button>
+      <input id="search" placeholder="Поиск..." oninput="applyView()">
+    </div>
+  </div>
+</header>
+
+<main>
+  <div class="legend">
+    <span class="lg-clean" onclick="setFilter('framework-clean')">Зелёный — фреймворк без изменений</span>
+    <span class="lg-modified" onclick="setFilter('framework-modified')">Жёлтый — фреймворк с изменениями</span>
+    <span class="lg-project" onclick="setFilter('project')">Синий — создано проектом</span>
+  </div>
+  <div id="tree" class="tree"></div>
+</main>
+
+<script>
+const data={"name": "bratanvpn/", "path": "bratanvpn/", "description": "корень монорепозитория BratanVPN", "type": "directory", "children": [{"name": ".cursor/", "path": "bratanvpn/.cursor/", "description": "", "type": "directory", "children": [{"name": "rules/", "path": "bratanvpn/.cursor/rules/", "description": "правила для Cursor AI", "type": "directory", "children": [{"name": "bratanvpn.mdc", "path": "bratanvpn/.cursor/rules/bratanvpn.mdc", "description": "целевая спецификация MVP (стек, API, дизайн)", "type": "project", "children": []}, {"name": "dialogue.mdc", "path": "bratanvpn/.cursor/rules/dialogue.mdc", "description": "правила совместной работы с AI", "type": "project", "children": []}]}]}, {"name": ".vscode/", "path": "bratanvpn/.vscode/", "description": "", "type": "directory", "children": [{"name": "settings.json", "path": "bratanvpn/.vscode/settings.json", "description": "локальные настройки редактора", "type": "project", "children": []}]}, {"name": "apps/", "path": "bratanvpn/apps/", "description": "клиентские приложения", "type": "directory", "children": [{"name": "client/", "path": "bratanvpn/apps/client/", "description": "Flutter-клиент (Windows + Android)", "type": "directory", "children": [{"name": "android/", "path": "bratanvpn/apps/client/android/", "description": "нативная оболочка Android (Flutter)", "type": "directory", "children": [{"name": "app/", "path": "bratanvpn/apps/client/android/app/", "description": "", "type": "directory", "children": [{"name": "src/", "path": "bratanvpn/apps/client/android/app/src/", "description": "", "type": "directory", "children": [{"name": "debug/", "path": "bratanvpn/apps/client/android/app/src/debug/", "description": "", "type": "directory", "children": [{"name": "AndroidManifest.xml", "path": "bratanvpn/apps/client/android/app/src/debug/AndroidManifest.xml", "description": "манифест debug-сборки", "type": "framework-clean", "children": []}]}, {"name": "main/", "path": "bratanvpn/apps/client/android/app/src/main/", "description": "", "type": "directory", "children": [{"name": "java/.../GeneratedPluginRegistrant.java", "path": "bratanvpn/apps/client/android/app/src/main/java/.../GeneratedPluginRegistrant.java", "description": "регистрация Flutter-плагинов", "type": "framework-clean", "children": []}, {"name": "kotlin/.../MainActivity.kt", "path": "bratanvpn/apps/client/android/app/src/main/kotlin/.../MainActivity.kt", "description": "точка входа Android (FlutterActivity)", "type": "framework-clean", "children": []}, {"name": "res/", "path": "bratanvpn/apps/client/android/app/src/main/res/", "description": "", "type": "directory", "children": [{"name": "drawable/launch_background.xml", "path": "bratanvpn/apps/client/android/app/src/main/res/drawable/launch_background.xml", "description": "фон splash", "type": "framework-clean", "children": []}, {"name": "drawable-v21/launch_background.xml", "path": "bratanvpn/apps/client/android/app/src/main/res/drawable-v21/launch_background.xml", "description": "splash для API 21+", "type": "framework-clean", "children": []}, {"name": "mipmap-*/ic_launcher.png", "path": "bratanvpn/apps/client/android/app/src/main/res/mipmap-*/ic_launcher.png", "description": "иконки приложения", "type": "framework-clean", "children": []}, {"name": "values/styles.xml", "path": "bratanvpn/apps/client/android/app/src/main/res/values/styles.xml", "description": "темы Material", "type": "framework-clean", "children": []}, {"name": "values-night/styles.xml", "path": "bratanvpn/apps/client/android/app/src/main/res/values-night/styles.xml", "description": "night-темы", "type": "framework-clean", "children": []}]}, {"name": "AndroidManifest.xml", "path": "bratanvpn/apps/client/android/app/src/main/AndroidManifest.xml", "description": "основной манифест приложения", "type": "framework-clean", "children": []}]}, {"name": "profile/", "path": "bratanvpn/apps/client/android/app/src/profile/", "description": "", "type": "directory", "children": [{"name": "AndroidManifest.xml", "path": "bratanvpn/apps/client/android/app/src/profile/AndroidManifest.xml", "description": "манифест profile-сборки", "type": "framework-clean", "children": []}]}]}, {"name": "build.gradle.kts", "path": "bratanvpn/apps/client/android/app/build.gradle.kts", "description": "Gradle-модуль app (applicationId)", "type": "framework-clean", "children": []}]}, {"name": "gradle/wrapper/", "path": "bratanvpn/apps/client/android/gradle/wrapper/", "description": "Gradle Wrapper", "type": "directory", "children": [{"name": "gradle-wrapper.jar", "path": "bratanvpn/apps/client/android/gradle/wrapper/gradle-wrapper.jar", "description": "", "type": "framework-clean", "children": []}, {"name": "gradle-wrapper.properties", "path": "bratanvpn/apps/client/android/gradle/wrapper/gradle-wrapper.properties", "description": "версия Gradle", "type": "framework-clean", "children": []}]}, {"name": ".gitignore", "path": "bratanvpn/apps/client/android/.gitignore", "description": "игнор Android build / local.properties", "type": "framework-clean", "children": []}, {"name": "build.gradle.kts", "path": "bratanvpn/apps/client/android/build.gradle.kts", "description": "корневой Gradle Android", "type": "framework-clean", "children": []}, {"name": "client_android.iml", "path": "bratanvpn/apps/client/android/client_android.iml", "description": "модуль IDE", "type": "framework-clean", "children": []}, {"name": "gradle.properties", "path": "bratanvpn/apps/client/android/gradle.properties", "description": "свойства Gradle", "type": "framework-clean", "children": []}, {"name": "gradlew / gradlew.bat", "path": "bratanvpn/apps/client/android/gradlew / gradlew.bat", "description": "скрипты запуска Gradle", "type": "framework-clean", "children": []}, {"name": "settings.gradle.kts", "path": "bratanvpn/apps/client/android/settings.gradle.kts", "description": "multi-project settings", "type": "framework-clean", "children": []}]}, {"name": "lib/", "path": "bratanvpn/apps/client/lib/", "description": "Dart-код приложения (основная логика UI)", "type": "directory", "children": [{"name": "services/", "path": "bratanvpn/apps/client/lib/services/", "description": "", "type": "directory", "children": [{"name": "activation_api.dart", "path": "bratanvpn/apps/client/lib/services/activation_api.dart", "description": "HTTP POST /api/v1/activate + ошибки", "type": "project", "children": []}, {"name": "api_config.dart", "path": "bratanvpn/apps/client/lib/services/api_config.dart", "description": "base URL API и stub device_id", "type": "project", "children": []}]}, {"name": "main.dart", "path": "bratanvpn/apps/client/lib/main.dart", "description": "UI: кнопка, диалог ключа, таймер, настройки", "type": "framework-modified", "children": [], "changes": "Демо-счётчик заменён на UI BratanVPN и активацию."}]}, {"name": "test/", "path": "bratanvpn/apps/client/test/", "description": "", "type": "directory", "children": [{"name": "widget_test.dart", "path": "bratanvpn/apps/client/test/widget_test.dart", "description": "widget-тесты UI и активации", "type": "framework-modified", "children": [], "changes": "Тест счётчика переписан под BratanVPN."}]}, {"name": "windows/", "path": "bratanvpn/apps/client/windows/", "description": "нативная оболочка Windows (Flutter)", "type": "directory", "children": [{"name": "flutter/", "path": "bratanvpn/apps/client/windows/flutter/", "description": "", "type": "directory", "children": [{"name": "CMakeLists.txt", "path": "bratanvpn/apps/client/windows/flutter/CMakeLists.txt", "description": "CMake Flutter engine (Windows)", "type": "framework-clean", "children": []}, {"name": "generated_plugin_registrant.cc/.h", "path": "bratanvpn/apps/client/windows/flutter/generated_plugin_registrant.cc/.h", "description": "авторегистрация плагинов C++", "type": "framework-clean", "children": []}, {"name": "generated_plugins.cmake", "path": "bratanvpn/apps/client/windows/flutter/generated_plugins.cmake", "description": "список плагинов для CMake", "type": "framework-clean", "children": []}]}, {"name": "runner/", "path": "bratanvpn/apps/client/windows/runner/", "description": "", "type": "directory", "children": [{"name": "resources/app_icon.ico", "path": "bratanvpn/apps/client/windows/runner/resources/app_icon.ico", "description": "иконка .exe", "type": "framework-clean", "children": []}, {"name": "CMakeLists.txt", "path": "bratanvpn/apps/client/windows/runner/CMakeLists.txt", "description": "сборка runner", "type": "framework-clean", "children": []}, {"name": "flutter_window.cpp/.h", "path": "bratanvpn/apps/client/windows/runner/flutter_window.cpp/.h", "description": "окно + Flutter view", "type": "framework-clean", "children": []}, {"name": "main.cpp", "path": "bratanvpn/apps/client/windows/runner/main.cpp", "description": "wWinMain; размер окна BratanVPN 380×680", "type": "framework-modified", "children": [], "changes": "Размер окна 380×680, заголовок BratanVPN."}, {"name": "resource.h / Runner.rc", "path": "bratanvpn/apps/client/windows/runner/resource.h / Runner.rc", "description": "ресурсы Windows", "type": "framework-clean", "children": []}, {"name": "runner.exe.manifest", "path": "bratanvpn/apps/client/windows/runner/runner.exe.manifest", "description": "манифест исполняемого файла", "type": "framework-clean", "children": []}, {"name": "utils.cpp/.h", "path": "bratanvpn/apps/client/windows/runner/utils.cpp/.h", "description": "утилиты консоли/argv", "type": "framework-clean", "children": []}, {"name": "win32_window.cpp/.h", "path": "bratanvpn/apps/client/windows/runner/win32_window.cpp/.h", "description": "Win32-обёртка окна", "type": "framework-clean", "children": []}]}, {"name": ".gitignore", "path": "bratanvpn/apps/client/windows/.gitignore", "description": "", "type": "framework-clean", "children": []}, {"name": "CMakeLists.txt", "path": "bratanvpn/apps/client/windows/CMakeLists.txt", "description": "корневой CMake Windows", "type": "framework-clean", "children": []}]}, {"name": ".gitignore", "path": "bratanvpn/apps/client/.gitignore", "description": "игнор build / .dart_tool", "type": "framework-clean", "children": []}, {"name": ".metadata", "path": "bratanvpn/apps/client/.metadata", "description": "метаданные Flutter tool", "type": "framework-clean", "children": []}, {"name": "analysis_options.yaml", "path": "bratanvpn/apps/client/analysis_options.yaml", "description": "правила анализатора Dart", "type": "framework-clean", "children": []}, {"name": "client.iml", "path": "bratanvpn/apps/client/client.iml", "description": "модуль IDE", "type": "framework-clean", "children": []}, {"name": "pubspec.lock", "path": "bratanvpn/apps/client/pubspec.lock", "description": "зафиксированные версии пакетов", "type": "framework-modified", "children": [], "changes": "Обновлён после добавления http."}, {"name": "pubspec.yaml", "path": "bratanvpn/apps/client/pubspec.yaml", "description": "зависимости Flutter (+ http)", "type": "framework-modified", "children": [], "changes": "Добавлена зависимость http: ^1.2.2."}, {"name": "README.md", "path": "bratanvpn/apps/client/README.md", "description": "README шаблона Flutter", "type": "framework-clean", "children": []}]}]}, {"name": "backend/", "path": "bratanvpn/backend/", "description": "FastAPI backend", "type": "directory", "children": [{"name": "alembic/", "path": "bratanvpn/backend/alembic/", "description": "миграции БД", "type": "directory", "children": [{"name": "versions/", "path": "bratanvpn/backend/alembic/versions/", "description": "история миграций", "type": "directory", "children": [{"name": "7b25f5a14fc7_initial_migration.py", "path": "bratanvpn/backend/alembic/versions/7b25f5a14fc7_initial_migration.py", "description": "начальная схема", "type": "project", "children": []}, {"name": "17a448b79be1_add_vpn_clients_table.py", "path": "bratanvpn/backend/alembic/versions/17a448b79be1_add_vpn_clients_table.py", "description": "(история) таблица vpn_clients", "type": "project", "children": []}, {"name": "a3f2c8d91e04_move_vpn_fields_to_access_keys.py", "path": "bratanvpn/backend/alembic/versions/a3f2c8d91e04_move_vpn_fields_to_access_keys.py", "description": "VPN-поля на access_keys", "type": "project", "children": []}]}, {"name": "env.py", "path": "bratanvpn/backend/alembic/env.py", "description": "окружение Alembic + metadata моделей", "type": "framework-modified", "children": [], "changes": "Подключены Base.metadata и асинхронный engine проекта."}, {"name": "README", "path": "bratanvpn/backend/alembic/README", "description": "справка Alembic", "type": "framework-clean", "children": []}, {"name": "script.py.mako", "path": "bratanvpn/backend/alembic/script.py.mako", "description": "шаблон новой миграции", "type": "framework-clean", "children": []}]}, {"name": "app/", "path": "bratanvpn/backend/app/", "description": "код API", "type": "directory", "children": [{"name": "api/", "path": "bratanvpn/backend/app/api/", "description": "", "type": "directory", "children": [{"name": "__init__.py", "path": "bratanvpn/backend/app/api/__init__.py", "description": "", "type": "project", "children": []}, {"name": "activation.py", "path": "bratanvpn/backend/app/api/activation.py", "description": "POST /activate", "type": "project", "children": []}, {"name": "admin_keys.py", "path": "bratanvpn/backend/app/api/admin_keys.py", "description": "admin API ключей", "type": "project", "children": []}, {"name": "validation.py", "path": "bratanvpn/backend/app/api/validation.py", "description": "валидация access key", "type": "project", "children": []}, {"name": "vpn_config.py", "path": "bratanvpn/backend/app/api/vpn_config.py", "description": "GET /vpn/config", "type": "project", "children": []}]}, {"name": "core/", "path": "bratanvpn/backend/app/core/", "description": "", "type": "directory", "children": [{"name": "__init__.py", "path": "bratanvpn/backend/app/core/__init__.py", "description": "", "type": "project", "children": []}, {"name": "config.py", "path": "bratanvpn/backend/app/core/config.py", "description": "Settings (.env): DB, VPN, agent SSH", "type": "project", "children": []}, {"name": "security.py", "path": "bratanvpn/backend/app/core/security.py", "description": "проверка X-Admin-Key", "type": "project", "children": []}]}, {"name": "db/", "path": "bratanvpn/backend/app/db/", "description": "", "type": "directory", "children": [{"name": "__init__.py", "path": "bratanvpn/backend/app/db/__init__.py", "description": "", "type": "project", "children": []}, {"name": "base.py", "path": "bratanvpn/backend/app/db/base.py", "description": "SQLAlchemy DeclarativeBase", "type": "project", "children": []}, {"name": "init_db.py", "path": "bratanvpn/backend/app/db/init_db.py", "description": "импорт моделей / init", "type": "project", "children": []}, {"name": "session.py", "path": "bratanvpn/backend/app/db/session.py", "description": "async engine и session", "type": "project", "children": []}]}, {"name": "models/", "path": "bratanvpn/backend/app/models/", "description": "", "type": "directory", "children": [{"name": "access_key.py", "path": "bratanvpn/backend/app/models/access_key.py", "description": "модель AccessKey (1 ключ = 1 устройство)", "type": "project", "children": []}, {"name": "enums.py", "path": "bratanvpn/backend/app/models/enums.py", "description": "enum статусов", "type": "project", "children": []}]}, {"name": "services/", "path": "bratanvpn/backend/app/services/", "description": "", "type": "directory", "children": [{"name": "__init__.py", "path": "bratanvpn/backend/app/services/__init__.py", "description": "", "type": "project", "children": []}, {"name": "access_key_service.py", "path": "bratanvpn/backend/app/services/access_key_service.py", "description": "create/list/revoke/restore/validate", "type": "project", "children": []}, {"name": "activation_service.py", "path": "bratanvpn/backend/app/services/activation_service.py", "description": "активация + add_peer", "type": "project", "children": []}, {"name": "vpn_agent_client.py", "path": "bratanvpn/backend/app/services/vpn_agent_client.py", "description": "SSH/local вызов awg-агента", "type": "project", "children": []}, {"name": "vpn_service.py", "path": "bratanvpn/backend/app/services/vpn_service.py", "description": "allocate IP, сборка конфига", "type": "project", "children": []}]}, {"name": "__init__.py", "path": "bratanvpn/backend/app/__init__.py", "description": "", "type": "project", "children": []}, {"name": "main.py", "path": "bratanvpn/backend/app/main.py", "description": "точка входа FastAPI, роутеры", "type": "project", "children": []}]}, {"name": ".env.example", "path": "bratanvpn/backend/.env.example", "description": "пример env без секретов", "type": "project", "children": []}, {"name": "alembic.ini", "path": "bratanvpn/backend/alembic.ini", "description": "конфиг Alembic", "type": "framework-modified", "children": [], "changes": "URL и настройки адаптированы под проект; связка с env.py."}, {"name": "pyproject.toml", "path": "bratanvpn/backend/pyproject.toml", "description": "зависимости Python-проекта", "type": "project", "children": []}]}, {"name": "docs/", "path": "bratanvpn/docs/", "description": "документация", "type": "directory", "children": [{"name": "ACCESS_KEY_HASHING_DEFERRED.md", "path": "bratanvpn/docs/ACCESS_KEY_HASHING_DEFERRED.md", "description": "хэш ключей отложен до прода", "type": "project", "children": []}, {"name": "ARCHITECTURE_MAP.md", "path": "bratanvpn/docs/ARCHITECTURE_MAP.md", "description": "карта архитектуры + описания файлов", "type": "project", "children": []}, {"name": "PROJECT_TREE.md", "path": "bratanvpn/docs/PROJECT_TREE.md", "description": "это дерево с краткими описаниями", "type": "project", "children": []}, {"name": "BratanVPN_security.xlsx", "path": "bratanvpn/docs/BratanVPN_security.xlsx", "description": "аудит безопасности", "type": "project", "children": []}, {"name": "BratanVPN_speed_compare.xlsx", "path": "bratanvpn/docs/BratanVPN_speed_compare.xlsx", "description": "сравнение скорости VPN/серверов", "type": "project", "children": []}, {"name": "BratanVPN_status.xlsx", "path": "bratanvpn/docs/BratanVPN_status.xlsx", "description": "трекер задач MVP", "type": "project", "children": []}, {"name": "CHATGPT_PROJECT_CONTEXT.md", "path": "bratanvpn/docs/CHATGPT_PROJECT_CONTEXT.md", "description": "контекст проекта для AI", "type": "project", "children": []}]}, {"name": "infrastructure/", "path": "bratanvpn/infrastructure/", "description": "зарезервировано под infra (пока пусто)", "type": "directory", "children": []}, {"name": "server/", "path": "bratanvpn/server/", "description": "", "type": "directory", "children": [{"name": "amneziawg/", "path": "bratanvpn/server/amneziawg/", "description": "", "type": "directory", "children": [{"name": "bratanvpn-awg-agent.sh", "path": "bratanvpn/server/amneziawg/bratanvpn-awg-agent.sh", "description": "агент add/remove/exists/status на VPS", "type": "project", "children": []}, {"name": "README.md", "path": "bratanvpn/server/amneziawg/README.md", "description": "инструкция по агенту", "type": "project", "children": []}]}]}, {"name": ".gitignore", "path": "bratanvpn/.gitignore", "description": "что не коммитить", "type": "project", "children": []}, {"name": "docker-compose.yml", "path": "bratanvpn/docker-compose.yml", "description": "локальный PostgreSQL :5433", "type": "project", "children": []}, {"name": "README.md", "path": "bratanvpn/README.md", "description": "описание репозитория на GitHub", "type": "project", "children": []}]};
+let currentFilter='all';
+
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+function hasVisible(node,q){
+  const text=(node.name+' '+node.path+' '+(node.description||'')+' '+(node.changes||'')).toLowerCase();
+  const self=(currentFilter==='all'||node.type===currentFilter||node.type==='directory')&&(!q||text.includes(q));
+  return self||(node.children||[]).some(c=>hasVisible(c,q));
+}
+
+function render(node){
+  const el=document.createElement('div');
+  el.className='node';
+  el.dataset.type=node.type;
+  el.dataset.search=(node.name+' '+node.path+' '+(node.description||'')+' '+(node.changes||'')).toLowerCase();
+
+  const row=document.createElement('div');
+  row.className='row '+node.type;
+  const has=node.children&&node.children.length;
+
+  const toggle=document.createElement('button');
+  toggle.className='toggle';
+  toggle.textContent=has?'▾':'';
+  if(has) toggle.onclick=()=>{
+    const ch=el.querySelector(':scope>.children');
+    const hidden=ch.classList.toggle('hidden');
+    toggle.textContent=hidden?'▸':'▾';
+  };
+  row.appendChild(toggle);
+
+  const icon=document.createElement('span');
+  icon.className='icon';
+  icon.textContent=has?'📁':'📄';
+  row.appendChild(icon);
+
+  const name=document.createElement('div');
+  name.className='name';
+  name.textContent=node.name;
+  row.appendChild(name);
+
+  const desc=document.createElement('div');
+  desc.className='desc';
+  desc.textContent=node.description||'';
+  row.appendChild(desc);
+
+  if(node.changes){
+    const c=document.createElement('div');
+    c.className='changes';
+    c.innerHTML='<b>Изменения:</b> '+esc(node.changes);
+    row.appendChild(c);
+  }
+  el.appendChild(row);
+
+  if(has){
+    const children=document.createElement('div');
+    children.className='children';
+    node.children.forEach(n=>children.appendChild(render(n)));
+    el.appendChild(children);
+  }
+  return el;
+}
+
+function setFilter(f){
+  currentFilter=f;
+  document.querySelectorAll('[data-filter]').forEach(b=>b.classList.toggle('active',b.dataset.filter===f));
+  applyView();
+}
+
+function applyView(){
+  const q=document.getElementById('search').value.trim().toLowerCase();
+  function walk(el,node){
+    const visible=hasVisible(node,q);
+    el.classList.toggle('hidden',!visible);
+    const row=el.querySelector(':scope>.row');
+    const selfCat=currentFilter==='all'||node.type===currentFilter||node.type==='directory';
+    const selfQ=!q||el.dataset.search.includes(q);
+    row.classList.toggle('dim',!(selfCat&&selfQ)&&node.type!=='directory');
+
+    const childEls=el.querySelectorAll(':scope>.children>.node');
+    (node.children||[]).forEach((child,i)=>walk(childEls[i],child));
+
+    if((q||currentFilter!=='all')&&visible&&node.children?.length){
+      const ch=el.querySelector(':scope>.children');
+      const t=el.querySelector(':scope>.row>.toggle');
+      ch.classList.remove('hidden');
+      if(t)t.textContent='▾';
+    }
+  }
+  walk(document.querySelector('#tree>.node'),data);
+}
+
+function expandAll(){
+  document.querySelectorAll('.children').forEach(x=>x.classList.remove('hidden'));
+  document.querySelectorAll('.toggle').forEach(x=>{if(x.textContent)x.textContent='▾'});
+}
+function collapseAll(){
+  document.querySelectorAll('.children').forEach((x,i)=>{if(i>0)x.classList.add('hidden')});
+  document.querySelectorAll('.toggle').forEach(x=>{if(x.textContent)x.textContent='▸'});
+}
+
+document.getElementById('tree').appendChild(render(data));
+</script>
+</body>
+</html>

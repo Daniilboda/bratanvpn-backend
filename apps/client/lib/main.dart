@@ -1,21 +1,55 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:window_manager/window_manager.dart';
 
+import 'package:client/platform/desktop_shell.dart';
+import 'package:client/services/access_check_api.dart';
 import 'package:client/services/activation_api.dart';
-import 'package:client/services/api_config.dart';
+import 'package:client/services/amnezia_config_builder.dart';
+import 'package:client/services/secure_vault.dart';
+import 'package:client/services/vpn_config_api.dart';
+import 'package:client/services/vpn_session.dart';
+import 'package:client/services/vpn_tunnel.dart';
+import 'package:client/services/vpn_tunnel_factory.dart';
 
-void main() {
-  runApp(const MyApp());
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
+  DesktopShell? desktopShell;
+  if (!kIsWeb && Platform.isWindows) {
+    desktopShell = DesktopShell();
+    await desktopShell.init();
+  }
+
+  runApp(MyApp(desktopShell: desktopShell));
 }
 
 class MyApp extends StatelessWidget {
-  const MyApp({super.key, this.activationApi});
+  const MyApp({
+    super.key,
+    this.activationApi,
+    this.vpnConfigApi,
+    this.accessCheckApi,
+    this.secureVault,
+    this.vpnTunnel,
+    this.desktopShell,
+  });
 
   final ActivationApi? activationApi;
+  final VpnConfigApi? vpnConfigApi;
+  final AccessCheckApi? accessCheckApi;
+  final SecureVault? secureVault;
+  final VpnTunnel? vpnTunnel;
+  final DesktopShell? desktopShell;
 
   @override
   Widget build(BuildContext context) {
+    final vault = secureVault ?? SecureVault();
+    final tunnel = vpnTunnel ?? createVpnTunnel();
+
     return MaterialApp(
       title: 'BratanVPN',
       debugShowCheckedModeBanner: false,
@@ -29,15 +63,35 @@ class MyApp extends StatelessWidget {
           onSurface: Colors.white,
         ),
       ),
-      home: HomePage(activationApi: activationApi ?? ActivationApi()),
+      home: HomePage(
+        activationApi: activationApi ?? ActivationApi(),
+        vpnConfigApi: vpnConfigApi ?? VpnConfigApi(),
+        accessCheckApi: accessCheckApi ?? AccessCheckApi(),
+        secureVault: vault,
+        vpnSession: VpnSession(vault: vault, tunnel: tunnel),
+        desktopShell: desktopShell,
+      ),
     );
   }
 }
 
 class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.activationApi});
+  const HomePage({
+    super.key,
+    required this.activationApi,
+    required this.vpnConfigApi,
+    required this.accessCheckApi,
+    required this.secureVault,
+    required this.vpnSession,
+    this.desktopShell,
+  });
 
   final ActivationApi activationApi;
+  final VpnConfigApi vpnConfigApi;
+  final AccessCheckApi accessCheckApi;
+  final SecureVault secureVault;
+  final VpnSession vpnSession;
+  final DesktopShell? desktopShell;
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -45,22 +99,216 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   static const Color _background = Colors.black;
+  static const Duration _accessCheckPeriod = Duration(minutes: 15);
+  static const Duration _tunnelHealthPeriod = Duration(seconds: 5);
 
+  bool _ready = false;
   bool _keyActivated = false;
   bool _connected = false;
-  String? _vpnIp;
+  bool _checkingAccess = false;
+  bool _accessPollInFlight = false;
+  bool _tunnelHealthInFlight = false;
   Duration _session = Duration.zero;
   Timer? _timer;
+  Timer? _accessPollTimer;
+  Timer? _tunnelHealthTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    widget.desktopShell?.beforeQuit = _onBeforeQuit;
+    _restoreActivation();
+  }
+
+  Future<void> _onBeforeQuit() async {
+    try {
+      await widget.vpnSession.disconnect();
+    } on Object {
+      // Best-effort stop on exit.
+    }
+    if (!mounted) {
+      return;
+    }
+    _stopAccessPolling();
+    _stopTunnelHealthPolling();
+    _timer?.cancel();
+    _timer = null;
+    setState(() {
+      _connected = false;
+      _session = Duration.zero;
+    });
+  }
+
+  Future<void> _restoreActivation() async {
+    final activated = await widget.secureVault.isActivated();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _keyActivated = activated;
+      _ready = true;
+    });
+
+    if (activated) {
+      final ok = await _checkAccess();
+      if (mounted && ok) {
+        _startAccessPolling();
+      }
+    }
+  }
+
+  void _startAccessPolling() {
+    _accessPollTimer?.cancel();
+    _accessPollTimer = Timer.periodic(_accessCheckPeriod, (_) {
+      unawaited(_pollAccess());
+    });
+  }
+
+  void _stopAccessPolling() {
+    _accessPollTimer?.cancel();
+    _accessPollTimer = null;
+  }
+
+  void _startTunnelHealthPolling() {
+    _tunnelHealthTimer?.cancel();
+    _tunnelHealthTimer = Timer.periodic(_tunnelHealthPeriod, (_) {
+      unawaited(_pollTunnelHealth());
+    });
+  }
+
+  void _stopTunnelHealthPolling() {
+    _tunnelHealthTimer?.cancel();
+    _tunnelHealthTimer = null;
+  }
+
+  Future<void> _pollTunnelHealth() async {
+    if (!_connected || _tunnelHealthInFlight || !mounted) {
+      return;
+    }
+    _tunnelHealthInFlight = true;
+    try {
+      final running = await widget.vpnSession.isRunning();
+      if (!mounted || !_connected) {
+        return;
+      }
+      if (!running) {
+        await _applyTunnelDropped();
+      }
+    } on Object {
+      // Ignore transient query errors; next tick will retry.
+    } finally {
+      _tunnelHealthInFlight = false;
+    }
+  }
+
+  Future<void> _applyTunnelDropped() async {
+    _stopTunnelHealthPolling();
+    try {
+      await widget.vpnSession.disconnect();
+    } on Object {
+      // Best-effort cleanup of a dead/orphan service.
+    }
+    if (!mounted) {
+      return;
+    }
+    _setConnected(false);
+  }
+
+  Future<void> _pollAccess() async {
+    if (!_keyActivated || _accessPollInFlight || !mounted) {
+      return;
+    }
+    _accessPollInFlight = true;
+    try {
+      await _checkAccess();
+    } finally {
+      _accessPollInFlight = false;
+    }
+  }
+
+  Future<bool> _checkAccess() async {
+    final accessKey = await widget.secureVault.readAccessKey();
+    final deviceId = await widget.secureVault.getOrCreateDeviceId();
+
+    if (accessKey == null || accessKey.isEmpty) {
+      if (_keyActivated) {
+        await _applyAccessBlocked();
+      }
+      return false;
+    }
+
+    try {
+      final status = await widget.accessCheckApi.check(
+        accessKey: accessKey,
+        deviceId: deviceId,
+      );
+
+      if (status == AccessCheckStatus.valid) {
+        return true;
+      }
+
+      await _applyAccessBlocked();
+      return false;
+    } on AccessCheckException {
+      // Network / API errors: keep session; do not show status text on home.
+      return false;
+    }
+  }
+
+  Future<void> _applyAccessBlocked() async {
+    try {
+      await widget.vpnSession.disconnect();
+    } on Object {
+      // Best-effort stop.
+    }
+    await widget.secureVault.clearAccessSession();
+    if (!mounted) {
+      return;
+    }
+    _stopAccessPolling();
+    _stopTunnelHealthPolling();
+    _timer?.cancel();
+    _timer = null;
+    setState(() {
+      _keyActivated = false;
+      _connected = false;
+      _session = Duration.zero;
+    });
+  }
 
   @override
   void dispose() {
+    if (widget.desktopShell?.beforeQuit == _onBeforeQuit) {
+      widget.desktopShell?.beforeQuit = null;
+    }
+    _stopAccessPolling();
+    _stopTunnelHealthPolling();
     _timer?.cancel();
     super.dispose();
   }
 
   Future<void> _onPowerPressed() async {
+    if (!_ready || _checkingAccess) {
+      return;
+    }
+
     if (_connected) {
-      _setConnected(false);
+      setState(() => _checkingAccess = true);
+      try {
+        await widget.vpnSession.disconnect();
+        if (!mounted) {
+          return;
+        }
+        _setConnected(false);
+      } on VpnTunnelException {
+        // Tunnel stop failed: UI already reflects disconnect attempt.
+      } finally {
+        if (mounted) {
+          setState(() => _checkingAccess = false);
+        }
+      }
       return;
     }
 
@@ -69,13 +317,44 @@ class _HomePageState extends State<HomePage> {
       if (!mounted || result == null) {
         return;
       }
-      setState(() {
-        _keyActivated = true;
-        _vpnIp = result.vpnIp;
-      });
+      setState(() => _keyActivated = true);
+      _startAccessPolling();
+      await _startTunnelAndConnect();
+      return;
     }
 
-    _setConnected(true);
+    setState(() => _checkingAccess = true);
+    final allowed = await _checkAccess();
+    if (!mounted) {
+      return;
+    }
+    if (!allowed) {
+      setState(() => _checkingAccess = false);
+      return;
+    }
+
+    await _startTunnelAndConnect();
+  }
+
+  Future<void> _startTunnelAndConnect() async {
+    setState(() => _checkingAccess = true);
+    try {
+      await widget.vpnSession.connect();
+      if (!mounted) {
+        return;
+      }
+      _setConnected(true);
+    } on AmneziaConfigException {
+      // Keep disconnected; no status text on home screen.
+    } on VpnTunnelException {
+      // Keep disconnected; no status text on home screen.
+    } on Exception {
+      // Keep disconnected; no status text on home screen.
+    } finally {
+      if (mounted) {
+        setState(() => _checkingAccess = false);
+      }
+    }
   }
 
   Future<ActivationSuccess?> _showAccessKeyDialog() {
@@ -85,6 +364,8 @@ class _HomePageState extends State<HomePage> {
       builder: (dialogContext) {
         return _AccessKeyDialog(
           activationApi: widget.activationApi,
+          vpnConfigApi: widget.vpnConfigApi,
+          secureVault: widget.secureVault,
         );
       },
     );
@@ -99,7 +380,9 @@ class _HomePageState extends State<HomePage> {
         _timer = Timer.periodic(const Duration(seconds: 1), (_) {
           setState(() => _session += const Duration(seconds: 1));
         });
+        _startTunnelHealthPolling();
       } else {
+        _stopTunnelHealthPolling();
         _timer?.cancel();
         _timer = null;
         _session = Duration.zero;
@@ -125,15 +408,39 @@ class _HomePageState extends State<HomePage> {
       body: SafeArea(
         child: Stack(
           children: [
+            // Drag area for frameless window (buttons sit above and keep clicks).
+            const Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              height: 52,
+              child: DragToMoveArea(child: SizedBox.expand()),
+            ),
             Positioned(
               top: 4,
-              right: 4,
+              left: 4,
               child: IconButton(
+                tooltip: '',
                 onPressed: () {
                   // Экран настроек добавим позже.
                 },
                 icon: const Icon(
                   Icons.settings,
+                  color: Colors.white,
+                  size: 26,
+                ),
+              ),
+            ),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: IconButton(
+                tooltip: '',
+                onPressed: () {
+                  unawaited(widget.desktopShell?.hideToTray() ?? Future.value());
+                },
+                icon: const Icon(
+                  Icons.close,
                   color: Colors.white,
                   size: 26,
                 ),
@@ -187,11 +494,20 @@ class _HomePageState extends State<HomePage> {
                                 ]
                               : null,
                         ),
-                        child: Icon(
-                          Icons.power_settings_new,
-                          size: 56,
-                          color: iconColor,
-                        ),
+                        child: _checkingAccess
+                            ? const SizedBox(
+                                width: 36,
+                                height: 36,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : Icon(
+                                Icons.power_settings_new,
+                                size: 56,
+                                color: iconColor,
+                              ),
                       ),
                     ),
                   ),
@@ -248,11 +564,16 @@ class _HomePageState extends State<HomePage> {
     );
   }
 }
-
 class _AccessKeyDialog extends StatefulWidget {
-  const _AccessKeyDialog({required this.activationApi});
+  const _AccessKeyDialog({
+    required this.activationApi,
+    required this.vpnConfigApi,
+    required this.secureVault,
+  });
 
   final ActivationApi activationApi;
+  final VpnConfigApi vpnConfigApi;
+  final SecureVault secureVault;
 
   @override
   State<_AccessKeyDialog> createState() => _AccessKeyDialogState();
@@ -281,16 +602,35 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
     });
 
     try {
+      final deviceId = await widget.secureVault.getOrCreateDeviceId();
+      final keyPair = await widget.secureVault.getOrCreateVpnKeyPair();
       final result = await widget.activationApi.activate(
         accessKey: accessKey,
-        deviceId: stubDeviceId,
-        vpnPublicKey: generateStubVpnPublicKey(),
+        deviceId: deviceId,
+        vpnPublicKey: keyPair.publicKeyBase64,
       );
+      await widget.secureVault.saveAccessKey(accessKey);
+      await widget.secureVault.saveActivationSuccess(vpnIp: result.vpnIp);
+
+      final config = await widget.vpnConfigApi.fetchConfig(
+        accessKey: accessKey,
+        deviceId: deviceId,
+      );
+      await widget.secureVault.saveVpnConfig(config);
+
       if (!mounted) {
         return;
       }
       Navigator.of(context).pop(result);
     } on ActivationException catch (error) {
+      if (!mounted) {
+        return;
+      }
+      setState(() {
+        _loading = false;
+        _error = error.userMessage;
+      });
+    } on VpnConfigException catch (error) {
       if (!mounted) {
         return;
       }
@@ -347,7 +687,7 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
               ),
               cursorColor: Colors.white,
               decoration: InputDecoration(
-                hintText: 'BRTN-XXXX-XXXX-XXXX',
+                hintText: 'BRATAN-XXXXXXXXXXXXXXXX',
                 hintStyle: TextStyle(
                   color: Colors.white.withValues(alpha: 0.35),
                   letterSpacing: 1,
@@ -380,8 +720,8 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: const TextStyle(
-                  color: Color(0xFFFF6B6B),
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: 0.85),
                   fontSize: 13,
                 ),
               ),

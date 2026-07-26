@@ -1,21 +1,21 @@
 # BratanVPN — полный контекст проекта для ChatGPT / AI-ассистента
 
-> **Назначение файла:** это единственный источник правды о проекте для внешней LLM.
-> Перед любой задачей: (1) прочитай этот файл целиком, (2) не путай **целевую архитектуру (спека)** с **текущим кодом**, (3) не выдумывай эндпоинты, модели и файлы, которых здесь нет.
+> **Назначение файла:** источник правды о проекте для внешней LLM.
+> Перед любой задачей: (1) прочитай этот файл и `.cursor/rules/bratanvpn.mdc`, (2) **текущая схема MVP зафиксирована** (статусы `created|activated|revoked`, 1 ключ = 1 устройство, API `/activate` и `/admin/keys`) — не «чинить» её под старую спеку без запроса, (3) не выдумывай эндпоинты, модели и файлы, которых здесь нет.
 >
-> **Дата снимка состояния:** 2026-07-19  
+> **Дата снимка состояния:** 2026-07-23  
 > **Репозиторий:** `bratanvpn` (монорепозиторий, Windows-разработка)  
-> **Стадия:** ранний прототип backend; клиент, VPN-сервер, docs, infrastructure — почти не начаты.
+> **Стадия:** backend + агент AmneziaWG + Flutter UI/активация/keypair/vault; нативный туннель ещё нет.
 
 ---
 
 ## 0. Как работать с этим проектом (инструкция для AI)
 
 1. **Сначала смотри раздел «ТЕКУЩЕЕ СОСТОЯНИЕ»** — это то, что реально есть в git/коде.
-2. **Потом смотри раздел «ЦЕЛЕВАЯ СПЕЦИФИКАЦИЯ»** — это MVP, к которому нужно идти.
-3. Любое изменение должно приближать код к целевой спеке, **не ломая** уже работающие activate/validate/admin keys без явной причины.
+2. **Спека** `.cursor/rules/bratanvpn.mdc` обновлена под текущую схему MVP (2026-07-23). Не предлагай Device / `active|blocked|expired` / `/devices/*` как обязательный рефакторинг.
+3. Не ломай работающие activate/validate/admin keys/vpn config без явной причины.
 4. Не добавляй фичи вне MVP (оплаты, iOS, Redis, Kubernetes, рефералка, аналитика и т.д.) — см. запреты.
-5. Не храни секреты в коде. Не логируй приватные VPN-ключи и plaintext access keys.
+5. Не храни секреты в коде. Не логируй приватные VPN-ключи и plaintext access keys (в логах).
 6. При изменении БД — делай Alembic-миграцию.
 7. При критической логике — добавляй pytest.
 8. Отвечай / планируй в формате:
@@ -36,9 +36,9 @@
 
 | Роль | Что делает |
 |------|------------|
-| Администратор | Создаёт ключ, передаёт пользователю лично, блокирует/отзывает ключи и устройства |
-| Пользователь | Вводит ключ в приложении (Windows / Android), регистрирует устройство, подключается к VPN одной кнопкой |
-| Backend (FastAPI) | Проверяет ключи, регистрирует устройства, выдаёт VPN-конфиг, управляет доступом. **Не пропускает пользовательский VPN-трафик через себя** |
+| Администратор | Создаёт ключ, передаёт пользователю лично, отзывает/восстанавливает ключи |
+| Пользователь | Вводит ключ в приложении (Windows / Android), активирует на своём устройстве (1 ключ = 1 device), подключается к VPN одной кнопкой |
+| Backend (FastAPI) | Проверяет ключи, активирует, выдаёт VPN-конфиг, управляет доступом. **Не пропускает пользовательский VPN-трафик через себя** |
 | VPN-сервер (AmneziaWG 2.0 на Ubuntu VPS) | Туннель, маршрутизация, peer public keys, firewall |
 
 ### Ключевой принцип безопасности
@@ -224,29 +224,15 @@ Auth: `Depends(verify_admin_key)` — сравнение с `ADMIN_API_KEY` из
 Revoke statuses: `not_found` | `already_revoked` | `revoked`  
 Restore statuses: `not_found` | `not_revoked` | `restored_to_activated` | `restored_to_created`
 
-**Важно:** admin list/get возвращают **plaintext ключи** из БД. Это противоречит целевой спеке (хранить только hash, plaintext показывать один раз при создании).
+**Важно:** admin list/get возвращают **plaintext ключи** из БД. Это осознанно на текущем этапе (см. `ACCESS_KEY_HASHING_DEFERRED.md`); хеширование — позже.
 
-### 3.3. Чего в API НЕТ (но есть в целевой спеке)
+### 3.3. Планируемые, но ещё не сделанные endpoints
 
 ```text
-POST /api/v1/activation          # в спеке; сейчас /activate
-POST /api/v1/devices/register
-GET  /api/v1/access/status
-GET  /api/v1/vpn/config
-POST /api/v1/devices/revoke
-GET  /api/v1/health
-
-POST /api/v1/admin/access-keys
-GET  /api/v1/admin/access-keys
-POST /api/v1/admin/access-keys/{id}/block
-POST /api/v1/admin/access-keys/{id}/unblock
-POST /api/v1/admin/access-keys/{id}/revoke
-GET  /api/v1/admin/devices
-POST /api/v1/admin/devices/{id}/block
-POST /api/v1/admin/devices/{id}/unblock
-POST /api/v1/admin/devices/{id}/revoke
-GET  /api/v1/admin/server/status
+GET /api/v1/health
 ```
+
+Отдельные `/activation`, `/devices/*`, block/unblock device **не входят в текущий MVP**.
 
 ---
 
@@ -260,12 +246,12 @@ GET  /api/v1/admin/server/status
 |------|-----|------------|
 | `id` | int PK | автоинкремент |
 | `key` | String(64), unique | **plaintext**, не hash |
-| `status` | String(20) | default в модели `"active"` (несогласовано с enum!) |
-| `device_id` | String, nullable | 1 ключ ↔ 1 устройство |
+| `status` | String(20) | default `"created"`; значения: `created` / `activated` / `revoked` |
+| `device_id` | String, nullable | **1 ключ ↔ 1 устройство** (зафиксировано) |
 | `vpn_public_key` | String(255), unique, nullable | публичный VPN-ключ устройства |
 | `vpn_ip` | String(45), unique, nullable | адрес в туннеле, напр. `10.8.0.x` |
 
-Модель `VPNClient` / таблица `vpn_clients` **удалены** (миграция `a3f2c8d91e04`). VPN-поля лежат в `access_keys`, т.к. схема проекта: 1 ключ = 1 устройство.
+Модель `VPNClient` / таблица `vpn_clients` **удалены** (миграция `a3f2c8d91e04`). VPN-поля лежат в `access_keys`.
 
 ### 4.2. Enum статусов (код)
 
@@ -277,15 +263,14 @@ activated
 revoked
 ```
 
-**Несогласованность:** в модели `default="active"`, в сервисах используются `created` / `activated` / `revoked`. Значения `"active"` / `"blocked"` / `"expired"` из целевой спеки **не используются**.
+Это **официальные** статусы MVP. Значения `active` / `blocked` / `expired` не использовать.
 
-### 4.3. Чего нет в БД (целевая спека)
+### 4.3. Что сознательно отложено
 
-- `Device` (отдельная сущность с platform, vpn_public_key, status, last_seen_at, …)
-- `VpnServer`
-- `AdminAuditEvent`
-- Поля AccessKey: `key_hash`, `max_devices`, `created_at`, `expires_at`, `blocked_at`, `description`
-- UUID вместо int id (целевая спека требует UUID)
+- отдельная сущность `Device` + `max_devices`
+- `VpnServer`, `AdminAuditEvent`
+- `key_hash` вместо plaintext (см. `ACCESS_KEY_HASHING_DEFERRED.md`)
+- UUID вместо int id
 
 ---
 
@@ -294,10 +279,10 @@ revoked
 ### 5.1. `access_key_service.py`
 
 - `generate_access_key()` → `BRATAN-{16 hex uppercase}` через `secrets.token_hex(8)`  
-  (целевой формат в спеке: `BRTN-7K4M-92XP-WQ8L` — **другой**)
+  (это текущий формат MVP; `BRTN-XXXX-...` не требуется)
 - `create_access_key` — создаёт со статусом `created`
 - `validate_access_key` — см. выше
-- `revoke_access_key` / `restore_access_key` — только смена статуса в БД, **без** удаления peer из AmneziaWG
+- `revoke_access_key` / `restore_access_key` — смена статуса + (при revoke) remove peer через агент
 - `get_access_keys` / `get_access_key`
 
 ### 5.2. `activation_service.py`
@@ -421,26 +406,26 @@ bratanvpn/
 └── .cursor/rules/
 ```
 
-### 7.3. Целевые сущности
+### 7.3. Сущности MVP (зафиксировано)
 
-**AccessKey:** id, key_hash, status (`active|blocked|expired|revoked`), max_devices, created_at, expires_at, blocked_at, description  
-**Device:** id, access_key_id, device_id, device_name, platform, vpn_public_key, status, created_at, last_seen_at, blocked_at  
-**VpnServer:** id, name, country, city, host, vpn_port, api_status, vpn_status, is_active, created_at  
-**AdminAuditEvent:** id, action, entity_type, entity_id, created_at, details  
+**AccessKey:** id, key (plaintext пока), status (`created|activated|revoked`), device_id, vpn_public_key, vpn_ip  
 
-Ключ генерируется crypto-стойко, формат вроде `BRTN-7K4M-92XP-WQ8L`, в БД только hash, plaintext — один раз при создании.
+Отдельный **Device** / `max_devices` — **не** в текущем MVP.  
+**VpnServer** / **AdminAuditEvent** — опционально позже.
 
-### 7.4. Целевой user flow активации
+Формат ключа сейчас: `BRATAN-{16 hex}`. Хеширование — позже (`ACCESS_KEY_HASHING_DEFERRED.md`).
+
+### 7.4. User flow активации
 
 1. Пользователь вводит access key в приложении  
 2. Приложение локально создаёт VPN keypair  
 3. Private key остаётся только на устройстве  
-4. На backend уходят: access key + public VPN key (+ device meta)  
-5. Backend регистрирует Device, добавляет public key в AmneziaWG через ограниченный агент  
-6. Приложение получает VPN config (schema_version + server + protocol.amneziawg)  
+4. На backend уходят: access key + device_id + public VPN key  
+5. Backend активирует ключ (1 device), добавляет peer в AmneziaWG через агент  
+6. Приложение получает VPN config  
 7. Config сохраняется в secure storage  
 
-### 7.5. Целевой формат VPN config (ответ backend)
+### 7.5. Формат VPN config (ответ backend)
 
 ```json
 {
@@ -460,16 +445,15 @@ bratanvpn/
 
 Внутренне предусмотреть `VpnProtocol { amneziaWg, tlsFallback }`, но `tlsFallback` в v1 **не реализовывать** и не показывать в UI.
 
-### 7.6. Блокировка (целевая)
+### 7.6. Отзыв доступа
 
-При block ключа:
+При revoke ключа:
 
-1. сменить статус ключа  
-2. сменить статусы устройств  
-3. удалить public keys из AmneziaWG  
-4. применить конфиг  
-5. запретить выдачу config  
-6. клиент при проверке статуса: остановить VPN, очистить конфиг, показать «Доступ заблокирован», не крутить reconnect  
+1. сменить статус на `revoked`  
+2. удалить public key из AmneziaWG  
+3. очистить vpn_ip / vpn_public_key / device_id в БД  
+4. запретить выдачу config  
+5. клиент при validate: остановить VPN, очистить конфиг, показать «Доступ заблокирован», не крутить reconnect  
 
 Проверка статуса: при старте, при connect, периодически (не каждую секунду).
 
@@ -525,29 +509,23 @@ Secure storage: device token, private VPN key, device id, last config, activatio
 
 ---
 
-## 8. РАЗРЫВ: СПЕКА vs КОД (карта долгов)
+## 8. РАЗРЫВ: что ещё нужно (карта долгов)
 
 | Область | Сейчас | Нужно для MVP |
 |---------|--------|----------------|
-| Access key storage | plaintext | hash only |
-| Key format | `BRATAN-{hex}` | `BRTN-XXXX-XXXX-XXXX` |
-| Statuses | created/activated/revoked | active/blocked/expired/revoked |
-| Devices | `device_id` на AccessKey | отдельная модель Device, max_devices |
-| VPN keys | серверный `awg genkey` в vpn_service (не используется) | генерация на клиенте; backend только public |
-| VPN config API | нет | `GET /api/v1/vpn/config` |
-| Device register | нет | `POST /api/v1/devices/register` |
+| Access key storage | plaintext | позже hash (отложено осознанно) |
+| Statuses | created/activated/revoked | **уже ок — не менять** |
+| Devices | `device_id` на AccessKey | **уже ок (1=1) — не плодить Device** |
+| VPN keys на клиенте | X25519 + secure vault | ок; дальше — config в vault |
+| VPN config API | backend есть | вызвать из Flutter + сохранить |
+| Validate / access check | backend есть | периодически из клиента |
 | Health | нет | `GET /api/v1/health` |
-| Admin API shape | `/admin/keys` + plaintext | `/admin/access-keys` + id + block/unblock |
-| Admin CLI | нет | `python -m app.admin ...` |
-| AmneziaWG sync | нет | агент add/remove/apply |
-| Flutter client | нет | apps/client |
-| Compose | только postgres | + backend + caddy |
-| Tests | нет | критические сценарии pytest + Flutter tests |
-| Schemas | в `app/api/*.py` рядом с роутерами | так и оставляем (отдельной папки `schemas` нет) |
-| IDs | int | UUID (по спеке) |
-| Rate limit activation | нет | да |
-| Audit log | нет | AdminAuditEvent |
-| Docs | этот файл | architecture/api/security/deployment |
+| Admin API | `/admin/keys` revoke/restore | ок для MVP; CLI — опционально |
+| AmneziaWG sync | агент + SSH | prod local mode / hardening |
+| Flutter UI | экран + активация | нативный туннель |
+| Compose | postgres (+ local uvicorn) | postgres + backend + caddy — см. `docs/DEPLOYMENT_DOCKER.md` |
+| Tests | Flutter частично | pytest критического пути + health — см. `docs/BACKEND_TESTING.md` |
+| Rate limit activation | нет | желательно |
 
 ---
 
@@ -564,10 +542,11 @@ Secure storage: device token, private VPN key, device id, last config, activatio
 9. Не оставлять `TODO: implement later` в критических путях.  
 10. Не коммитить `.env` с секретами.  
 11. Не возвращать stack trace пользователю.  
-12. Не писать SQL строковой конкатенацией.
+12. Не писать SQL строковой конкатенацией.  
+13. **Не рефакторить** статусы/API/`Device` «под старую спеку» без явного запроса пользователя.
 
-Коды ошибок (целевые):  
-`INVALID_ACCESS_KEY`, `ACCESS_KEY_BLOCKED`, `ACCESS_KEY_EXPIRED`, `DEVICE_LIMIT_REACHED`, `DEVICE_BLOCKED`, `SERVER_UNAVAILABLE`, `VPN_START_FAILED`, `VPN_CONFIG_INVALID`, `API_UNAVAILABLE`, `NETWORK_UNAVAILABLE`.
+Коды ошибок (MVP):  
+`INVALID_ACCESS_KEY`, `ACCESS_KEY_REVOKED`, `DEVICE_MISMATCH`, `SERVER_UNAVAILABLE`, `VPN_START_FAILED`, `VPN_CONFIG_INVALID`, `API_UNAVAILABLE`, `NETWORK_UNAVAILABLE`.
 
 ---
 
@@ -575,18 +554,13 @@ Secure storage: device token, private VPN key, device id, last config, activatio
 
 Если AI просят «продолжить проект» без уточнения — логичный порядок:
 
-1. **Привести модель AccessKey к спеке** (hash, статусы, max_devices, timestamps) + миграция  
-2. **Добавить Device** (вместо device_id на ключе) + миграция  
-3. **VpnServer** (хотя бы одна запись)  
-4. Переписать user API под спеку: activation / devices/register / access/status / vpn/config  
-5. Подключить выдачу конфига **без** генерации private key на сервере  
-6. Ограниченный AmneziaWG-агент + вызов из backend при register/block  
-7. Health-check  
-8. Admin API/CLI по спеке + audit  
-9. Tests  
-10. Dockerize backend + Caddy  
-11. Flutter client (activation → secure storage → connect UI)  
-12. Android/Windows native VPN modules  
+1. Flutter: `GET /vpn/config` + сохранить в vault  
+2. Flutter: периодический `POST /validate` при revoke  
+3. Нативный VPN-туннель (сначала одна платформа)  
+4. Health-check  
+5. pytest критического пути  
+6. Dockerize backend + Caddy  
+7. (Позже, отдельным решением) hash ключей / multi-device / VpnServer  
 
 При любом шаге: не ломать локальный dev-путь (Postgres на 5433), обновлять этот файл или docs при крупных сдвигах.
 
@@ -610,7 +584,7 @@ Secure storage: device token, private VPN key, device id, last config, activatio
 
 ## 12. КРАТКИЙ ВЕРДИКТ ОДНИМ АБЗАЦЕМ
 
-BratanVPN сейчас — **ранний FastAPI-прототип управления plaintext access keys** (create / activate / validate / revoke / restore) на PostgreSQL. VPN-поля (`vpn_public_key`, `vpn_ip`) лежат в `access_keys` (1 ключ = 1 устройство); `vpn_service` умеет выделять IP и записывать их, но **ещё не подключён** к API. Flutter-клиента, AmneziaWG-агента, Caddy, health, тестов, хеширования ключей и целевых эндпоинтов **нет**. Целевая архитектура подробно описана в `.cursor/rules/bratanvpn.mdc`; этот файл фиксирует **фактический код** и разрыв со спекой, чтобы AI не выдумывал несуществующую реализацию.
+BratanVPN — монорепозиторий: FastAPI (activate / validate / vpn/config / admin keys revoke-restore) + PostgreSQL, AmneziaWG-агент на VPS, Flutter-клиент с UI/активацией/X25519/secure vault. Схема MVP зафиксирована: статусы `created|activated|revoked`, **1 ключ = 1 устройство**, API как сейчас. Главный пробел — нативный VPN-туннель в клиенте; также health, compose+caddy, pytest. Хеш access key отложен осознанно. Подробности: `.cursor/rules/bratanvpn.mdc`.
 
 ---
 

@@ -17,7 +17,7 @@ class AccessKey(Base):
 
     status: Mapped[str] = mapped_column(
         String(20),
-        default="active",
+        default="created",
         nullable=False,
     )
 

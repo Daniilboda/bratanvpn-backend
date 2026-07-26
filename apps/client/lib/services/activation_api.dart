@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:math';
 
 import 'package:http/http.dart' as http;
 
@@ -97,11 +96,4 @@ class ActivationApi {
       _ => 'Не удалось активировать ключ.',
     };
   }
-}
-
-/// Temporary WireGuard-shaped public key until real local keygen exists.
-String generateStubVpnPublicKey() {
-  final random = Random.secure();
-  final bytes = List<int>.generate(32, (_) => random.nextInt(256));
-  return base64Encode(bytes);
 }

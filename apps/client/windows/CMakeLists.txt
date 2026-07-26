@@ -106,3 +106,41 @@ install(DIRECTORY "${PROJECT_BUILD_DIR}/${FLUTTER_ASSET_DIR_NAME}"
 install(FILES "${AOT_LIBRARY}" DESTINATION "${INSTALL_BUNDLE_DATA_DIR}"
   CONFIGURATIONS Profile;Release
   COMPONENT Runtime)
+
+# AmneziaWG sidecar next to the app executable (user does not install AmneziaWG MSI).
+set(AMNEZIAWG_SIDECAR_DIR "${CMAKE_CURRENT_SOURCE_DIR}/amneziawg")
+set(AMNEZIAWG_SIDECAR_EXE "${AMNEZIAWG_SIDECAR_DIR}/amneziawg.exe")
+set(AMNEZIAWG_SIDECAR_WINTUN "${AMNEZIAWG_SIDECAR_DIR}/wintun.dll")
+if(EXISTS "${AMNEZIAWG_SIDECAR_EXE}" AND EXISTS "${AMNEZIAWG_SIDECAR_WINTUN}")
+  set(AMNEZIAWG_SIDECAR_FILES
+    "${AMNEZIAWG_SIDECAR_EXE}"
+    "${AMNEZIAWG_SIDECAR_WINTUN}"
+  )
+  if(EXISTS "${AMNEZIAWG_SIDECAR_DIR}/awg.exe")
+    list(APPEND AMNEZIAWG_SIDECAR_FILES "${AMNEZIAWG_SIDECAR_DIR}/awg.exe")
+  endif()
+  install(FILES ${AMNEZIAWG_SIDECAR_FILES}
+    DESTINATION "${CMAKE_INSTALL_PREFIX}/amneziawg"
+    COMPONENT Runtime
+  )
+else()
+  message(WARNING
+    "AmneziaWG sidecar missing (need amneziawg.exe + wintun.dll in "
+    "${AMNEZIAWG_SIDECAR_DIR}). "
+    "Run apps/client/windows/amneziawg/sync_from_install.ps1 before building "
+    "Windows VPN support.")
+endif()
+
+# Privileged tunnel helper (one-time UAC install → named-pipe control).
+set(BRATAN_HELPER_EXE "${CMAKE_CURRENT_SOURCE_DIR}/helper/bratanvpn_helper.exe")
+if(EXISTS "${BRATAN_HELPER_EXE}")
+  install(FILES "${BRATAN_HELPER_EXE}"
+    DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    COMPONENT Runtime
+  )
+else()
+  message(WARNING
+    "bratanvpn_helper.exe missing. Run "
+    "apps/client/windows/helper/build_helper.ps1 before building Windows VPN.")
+endif()
+

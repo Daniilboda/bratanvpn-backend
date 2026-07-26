@@ -1,0 +1,10 @@
+# Local development override: expose Postgres on host port 5433.
+# Usage:
+#   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+#
+# Or full stack with HTTP-only Caddy (SITE_ADDRESS=:80 in .env).
+
+services:
+  postgres:
+    ports:
+      - "5433:5432"

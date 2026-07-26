@@ -1,0 +1,5 @@
+# SITE_ADDRESS comes from compose environment (domain for HTTPS, or :80 for local HTTP).
+{$SITE_ADDRESS} {
+	encode gzip
+	reverse_proxy backend:8000
+}

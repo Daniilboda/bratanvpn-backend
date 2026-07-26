@@ -115,10 +115,19 @@ bratanvpn/                                          — корень монор�
 │   │   └── main.py                                 — точка входа FastAPI, роутеры
 │   ├── .env.example                                — пример env без секретов
 │   ├── alembic.ini                                 — конфиг Alembic
-│   └── pyproject.toml                              — зависимости Python-проекта
+│   ├── pyproject.toml                              — зависимости Python-проекта
+│   └── tests/                                      — pytest (критический путь + health)
+│       ├── conftest.py                             — SQLite in-memory, mock VPN-агента
+│       ├── test_critical_access_flow.py            — activate → config → validate → revoke
+│       ├── test_activation_edges.py                — mismatch, agent fail
+│       ├── test_admin_keys.py                      — admin auth / list / revoke
+│       ├── test_access_key_unit.py                 — generate key, allocate_ip
+│       └── test_health.py                          — health + Telegram
 ├── docs/                                           — документация
 │   ├── ACCESS_KEY_HASHING_DEFERRED.md              — хэш ключей отложен до прода
 │   ├── ARCHITECTURE_MAP.md                         — карта архитектуры + описания файлов
+│   ├── BACKEND_TESTING.md                          — отчёт и гайд по pytest backend
+│   ├── DEPLOYMENT_DOCKER.md                        — Docker Compose: backend + Caddy
 │   ├── PROJECT_TREE.md                             — это дерево с краткими описаниями
 │   ├── BratanVPN_security.xlsx                     — аудит безопасности
 │   ├── BratanVPN_speed_compare.xlsx                — сравнение скорости VPN/серверов

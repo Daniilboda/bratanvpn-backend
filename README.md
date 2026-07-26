@@ -64,8 +64,17 @@ ADMIN_API_KEY=replace_with_secret_key
 
 ## Запуск PostgreSQL
 
+Только база (порт 5433 на хосте):
+
 ```bash
-docker compose up -d
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres
+```
+
+Полный стек (postgres + backend + Caddy) — см. `docs/DEPLOYMENT_DOCKER.md`:
+
+```bash
+cp .env.example .env
+docker compose up -d --build
 ```
 
 ## Применение миграций

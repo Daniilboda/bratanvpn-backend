@@ -333,7 +333,7 @@ bratanvpn/
 | `access_key.py` | Модель `AccessKey`: key, status, device_id, vpn_public_key, vpn_ip |
 | `enums.py` | Перечисления статусов (если используются) |
 
-**Созданы проектом.** Схема упрощена: **1 access key = 1 устройство** (без отдельной таблицы Device).
+**Созданы проектом.** Схема MVP (зафиксирована): **1 access key = 1 устройство** (без отдельной таблицы Device). Статусы: `created` / `activated` / `revoked`.
 
 #### `app/services/`
 
@@ -373,8 +373,10 @@ flutter create --org com.bratanvpn --platforms=android,windows client
 | Файл | Назначение | Происхождение |
 |------|------------|---------------|
 | `main.dart` | UI: главный экран, диалог ключа, таймер, настройки | **Создан Flutter (демо-счётчик) — требовал изменений:** полностью заменён на BratanVPN UI + активация |
-| `services/api_config.dart` | `apiBaseUrl`, `stubDeviceId` | **Создан проектом** |
-| `services/activation_api.dart` | HTTP `POST /api/v1/activate`, ошибки, stub pubkey | **Создан проектом** |
+| `services/api_config.dart` | `apiBaseUrl` | **Создан проектом** |
+| `services/activation_api.dart` | HTTP `POST /api/v1/activate`, ошибки | **Создан проектом** |
+| `services/vpn_keypair.dart` | X25519 keypair (base64) | **Создан проектом** |
+| `services/secure_vault.dart` | device id, VPN keys, activation в secure storage | **Создан проектом** |
 
 ### 8.3. `test/`
 
@@ -441,10 +443,12 @@ Flutter UI (main.dart)
 
 ### 9.2. Что ещё не подключено в клиенте
 
-- Реальная генерация VPN keypair на устройстве + secure storage  
-- `GET /vpn/config` из Flutter  
+- `GET /vpn/config` из Flutter + сохранение конфига в vault  
 - Нативный AmneziaWG connect/disconnect  
+- Периодический `POST /validate` / проверка отзыва  
 - Хэш access key в БД (отложено — см. `ACCESS_KEY_HASHING_DEFERRED.md`)
+
+**Не долг MVP:** отдельные Device / статусы `active|blocked|expired` / API `/activation`+`/devices/*` — текущая схема (`created|activated|revoked`, 1 ключ = 1 устройство, `/activate`) зафиксирована в `.cursor/rules/bratanvpn.mdc`.
 
 ---
 

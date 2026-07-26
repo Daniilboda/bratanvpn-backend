@@ -1,0 +1,2 @@
+# Built helper binary (rebuild with build_helper.ps1 — do not commit large churn).
+bratanvpn_helper.exe

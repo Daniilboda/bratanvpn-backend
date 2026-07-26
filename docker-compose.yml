@@ -1,18 +1,83 @@
+﻿# BratanVPN — production-oriented stack: postgres + backend + caddy.
+# Local Postgres port (5433): use docker-compose.dev.yml — see docs/DEPLOYMENT_DOCKER.md
+
 services:
   postgres:
     image: postgres:16
     container_name: bratanvpn-postgres
-
     environment:
-      POSTGRES_DB: bratanvpn
-      POSTGRES_USER: bratanvpn
-      POSTGRES_PASSWORD: bratanvpn_password
-
-    ports:
-      - "5433:5432"
-
+      POSTGRES_DB: ${POSTGRES_DB:-bratanvpn}
+      POSTGRES_USER: ${POSTGRES_USER:-bratanvpn}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-bratanvpn_password}
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    networks:
+      - bratanvpn
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-bratanvpn} -d $${POSTGRES_DB:-bratanvpn}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bratanvpn-backend
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-bratanvpn}:${POSTGRES_PASSWORD:-bratanvpn_password}@postgres:5432/${POSTGRES_DB:-bratanvpn}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bratanvpn
+    restart: unless-stopped
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2.9-alpine
+    container_name: bratanvpn-caddy
+    depends_on:
+      - backend
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:-:80}
+    volumes:
+      - ./server/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - bratanvpn
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+networks:
+  bratanvpn:
+    name: bratanvpn
 
 volumes:
   postgres_data:
+  caddy_data:
+  caddy_config:

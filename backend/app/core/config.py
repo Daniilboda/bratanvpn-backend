@@ -33,6 +33,11 @@ class Settings(BaseSettings):
     vpn_agent_ssh_password: str | None = None
     vpn_agent_ssh_port: int = 22
 
+    telegram_bot_token: str | None = None
+    telegram_chat_id: str | None = None
+    telegram_alert_cooldown_seconds: int = 900
+    health_disk_min_mb: int = 500
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
