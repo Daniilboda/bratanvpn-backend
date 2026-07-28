@@ -112,6 +112,7 @@ class _HomePageState extends State<HomePage> {
   bool _connectLightActive = false;
   bool _connectLightHomeIn = false;
   bool _connectLightAbort = false;
+  String? _pendingAbortMessage;
   Offset _powerButtonCenter = Offset.zero;
   final GlobalKey _powerButtonKey = GlobalKey();
   final GlobalKey _homeStackKey = GlobalKey();
@@ -345,6 +346,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _startTunnelAndConnect() async {
     _updatePowerButtonCenter();
+    // Immediate feedback: spark ignites at the button center.
     setState(() {
       _checkingAccess = true;
       _connectLightActive = true;
@@ -357,24 +359,29 @@ class _HomePageState extends State<HomePage> {
         return;
       }
       _updatePowerButtonCenter();
+      // Spark flares into the lit button.
       setState(() => _connectLightHomeIn = true);
-      // Connected UI turns on when the light settles (onSettled).
     } on AmneziaConfigException catch (error) {
       if (mounted) {
-        _abortConnectLight();
-        _showHomeMessage(error.userMessage);
+        _abortConnectLight(error.userMessage);
       }
     } on VpnTunnelException catch (error) {
       if (mounted) {
-        _abortConnectLight();
-        _showHomeMessage(error.userMessage);
+        _abortConnectLight(error.userMessage);
       }
     } on Exception {
       if (mounted) {
-        _abortConnectLight();
-        _showHomeMessage('Не удалось запустить VPN.');
+        _abortConnectLight('Не удалось запустить VPN.');
       }
     }
+  }
+
+  void _abortConnectLight(String message) {
+    setState(() {
+      _connectLightAbort = true;
+      _connectLightHomeIn = false;
+    });
+    _pendingAbortMessage = message;
   }
 
   void _updatePowerButtonCenter() {
@@ -390,13 +397,6 @@ class _HomePageState extends State<HomePage> {
     }
     final global = box.localToGlobal(box.size.center(Offset.zero));
     _powerButtonCenter = stackBox.globalToLocal(global);
-  }
-
-  void _abortConnectLight() {
-    setState(() {
-      _connectLightAbort = true;
-      _connectLightHomeIn = false;
-    });
   }
 
   void _onConnectLightSettled() {
@@ -416,12 +416,17 @@ class _HomePageState extends State<HomePage> {
     if (!mounted) {
       return;
     }
+    final message = _pendingAbortMessage;
+    _pendingAbortMessage = null;
     setState(() {
       _connectLightActive = false;
       _connectLightHomeIn = false;
       _connectLightAbort = false;
       _checkingAccess = false;
     });
+    if (message != null && message.isNotEmpty) {
+      _showHomeMessage(message);
+    }
   }
 
   void _showHomeMessage(String message) {
@@ -579,20 +584,11 @@ class _HomePageState extends State<HomePage> {
                                 ]
                               : null,
                         ),
-                        child: _checkingAccess && !_connectLightActive
-                            ? const SizedBox(
-                                width: 36,
-                                height: 36,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
-                              )
-                            : Icon(
-                                Icons.power_settings_new,
-                                size: 56,
-                                color: iconColor,
-                              ),
+                        child: Icon(
+                          Icons.power_settings_new,
+                          size: 56,
+                          color: iconColor,
+                        ),
                       ),
                     ),
                   ),
