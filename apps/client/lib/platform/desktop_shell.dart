@@ -39,6 +39,8 @@ class DesktopShell with WindowListener, TrayListener {
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.setPreventClose(true);
       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      // Taskbar / Alt-Tab icon (asset path relative to Flutter assets).
+      await windowManager.setIcon(_trayIconAsset);
       await windowManager.show();
       await windowManager.focus();
     });

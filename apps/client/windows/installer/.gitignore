@@ -1,0 +1,5 @@
+# Built Setup.exe (do not commit).
+output/
+_preview_icon.png
+logo.png
+wizard_*.bmp
