@@ -14,6 +14,7 @@ import 'package:client/services/vpn_config_api.dart';
 import 'package:client/services/vpn_session.dart';
 import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/vpn_tunnel_factory.dart';
+import 'package:client/shared/widgets/connecting_light_overlay.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -108,6 +109,12 @@ class _HomePageState extends State<HomePage> {
   bool _checkingAccess = false;
   bool _accessPollInFlight = false;
   bool _tunnelHealthInFlight = false;
+  bool _connectLightActive = false;
+  bool _connectLightHomeIn = false;
+  bool _connectLightAbort = false;
+  Offset _powerButtonCenter = Offset.zero;
+  final GlobalKey _powerButtonKey = GlobalKey();
+  final GlobalKey _homeStackKey = GlobalKey();
   Duration _session = Duration.zero;
   Timer? _timer;
   Timer? _accessPollTimer;
@@ -337,24 +344,96 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startTunnelAndConnect() async {
-    setState(() => _checkingAccess = true);
+    _updatePowerButtonCenter();
+    setState(() {
+      _checkingAccess = true;
+      _connectLightActive = true;
+      _connectLightHomeIn = false;
+      _connectLightAbort = false;
+    });
     try {
       await widget.vpnSession.connect();
       if (!mounted) {
         return;
       }
-      _setConnected(true);
-    } on AmneziaConfigException {
-      // Keep disconnected; no status text on home screen.
-    } on VpnTunnelException {
-      // Keep disconnected; no status text on home screen.
-    } on Exception {
-      // Keep disconnected; no status text on home screen.
-    } finally {
+      _updatePowerButtonCenter();
+      setState(() => _connectLightHomeIn = true);
+      // Connected UI turns on when the light settles (onSettled).
+    } on AmneziaConfigException catch (error) {
       if (mounted) {
-        setState(() => _checkingAccess = false);
+        _abortConnectLight();
+        _showHomeMessage(error.userMessage);
+      }
+    } on VpnTunnelException catch (error) {
+      if (mounted) {
+        _abortConnectLight();
+        _showHomeMessage(error.userMessage);
+      }
+    } on Exception {
+      if (mounted) {
+        _abortConnectLight();
+        _showHomeMessage('Не удалось запустить VPN.');
       }
     }
+  }
+
+  void _updatePowerButtonCenter() {
+    final box =
+        _powerButtonKey.currentContext?.findRenderObject() as RenderBox?;
+    if (box == null || !box.hasSize) {
+      return;
+    }
+    final stackBox =
+        _homeStackKey.currentContext?.findRenderObject() as RenderBox?;
+    if (stackBox == null) {
+      return;
+    }
+    final global = box.localToGlobal(box.size.center(Offset.zero));
+    _powerButtonCenter = stackBox.globalToLocal(global);
+  }
+
+  void _abortConnectLight() {
+    setState(() {
+      _connectLightAbort = true;
+      _connectLightHomeIn = false;
+    });
+  }
+
+  void _onConnectLightSettled() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _connectLightActive = false;
+      _connectLightHomeIn = false;
+      _connectLightAbort = false;
+      _checkingAccess = false;
+    });
+    _setConnected(true);
+  }
+
+  void _onConnectLightAborted() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _connectLightActive = false;
+      _connectLightHomeIn = false;
+      _connectLightAbort = false;
+      _checkingAccess = false;
+    });
+  }
+
+  void _showHomeMessage(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        backgroundColor: const Color(0xFF1A1A1A),
+        content: Text(
+          message,
+          style: const TextStyle(color: Colors.white),
+        ),
+      ),
+    );
   }
 
   Future<ActivationSuccess?> _showAccessKeyDialog() {
@@ -403,19 +482,23 @@ class _HomePageState extends State<HomePage> {
     final iconColor = _connected ? Colors.black : Colors.white;
     final label = _connected ? 'Подключено' : 'Подключиться';
 
+    final isDesktopShell = widget.desktopShell != null;
+
     return Scaffold(
       backgroundColor: _background,
       body: SafeArea(
         child: Stack(
+          key: _homeStackKey,
           children: [
-            // Drag area for frameless window (buttons sit above and keep clicks).
-            const Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              height: 52,
-              child: DragToMoveArea(child: SizedBox.expand()),
-            ),
+            // Frameless Windows: drag strip under chrome buttons.
+            if (isDesktopShell)
+              const Positioned(
+                left: 0,
+                right: 0,
+                top: 0,
+                height: 52,
+                child: DragToMoveArea(child: SizedBox.expand()),
+              ),
             Positioned(
               top: 4,
               left: 4,
@@ -431,21 +514,22 @@ class _HomePageState extends State<HomePage> {
                 ),
               ),
             ),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: IconButton(
-                tooltip: '',
-                onPressed: () {
-                  unawaited(widget.desktopShell?.hideToTray() ?? Future.value());
-                },
-                icon: const Icon(
-                  Icons.close,
-                  color: Colors.white,
-                  size: 26,
+            if (isDesktopShell)
+              Positioned(
+                top: 4,
+                right: 4,
+                child: IconButton(
+                  tooltip: '',
+                  onPressed: () {
+                    unawaited(widget.desktopShell!.hideToTray());
+                  },
+                  icon: const Icon(
+                    Icons.close,
+                    color: Colors.white,
+                    size: 26,
+                  ),
                 ),
               ),
-            ),
             Center(
               child: Column(
                 mainAxisSize: MainAxisSize.min,
@@ -466,6 +550,7 @@ class _HomePageState extends State<HomePage> {
                     child: GestureDetector(
                       onTap: _onPowerPressed,
                       child: AnimatedContainer(
+                        key: _powerButtonKey,
                         duration: const Duration(milliseconds: 250),
                         width: 148,
                         height: 148,
@@ -494,7 +579,7 @@ class _HomePageState extends State<HomePage> {
                                 ]
                               : null,
                         ),
-                        child: _checkingAccess
+                        child: _checkingAccess && !_connectLightActive
                             ? const SizedBox(
                                 width: 36,
                                 height: 36,
@@ -558,6 +643,21 @@ class _HomePageState extends State<HomePage> {
                 ],
               ),
             ),
+            if (_connectLightActive)
+              Positioned.fill(
+                child: ConnectingLightOverlay(
+                  homeIn: _connectLightHomeIn,
+                  abort: _connectLightAbort,
+                  target: _powerButtonCenter == Offset.zero
+                      ? Offset(
+                          MediaQuery.sizeOf(context).width / 2,
+                          MediaQuery.sizeOf(context).height / 2,
+                        )
+                      : _powerButtonCenter,
+                  onSettled: _onConnectLightSettled,
+                  onAborted: _onConnectLightAborted,
+                ),
+              ),
           ],
         ),
       ),
