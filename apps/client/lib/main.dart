@@ -486,6 +486,8 @@ class _HomePageState extends State<HomePage> {
     final buttonFill = _connected ? Colors.white : _background;
     final iconColor = _connected ? Colors.black : Colors.white;
     final label = _connected ? 'Подключено' : 'Подключиться';
+    // Hide the glyph while the spark blooms — white-on-white reads as noise.
+    final iconOpacity = _connectLightActive ? 0.0 : 1.0;
 
     final isDesktopShell = widget.desktopShell != null;
 
@@ -584,10 +586,19 @@ class _HomePageState extends State<HomePage> {
                                 ]
                               : null,
                         ),
-                        child: Icon(
-                          Icons.power_settings_new,
-                          size: 56,
-                          color: iconColor,
+                        child: AnimatedOpacity(
+                          opacity: iconOpacity,
+                          duration: Duration(
+                            milliseconds: _connectLightActive ? 140 : 260,
+                          ),
+                          curve: _connectLightActive
+                              ? Curves.easeIn
+                              : Curves.easeOutCubic,
+                          child: Icon(
+                            Icons.power_settings_new,
+                            size: 56,
+                            color: iconColor,
+                          ),
                         ),
                       ),
                     ),

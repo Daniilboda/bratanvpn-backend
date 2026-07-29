@@ -6,7 +6,7 @@
 ;   ISCC.exe bratanvpn.iss
 
 #define MyAppName "BratanVPN"
-#define MyAppVersion "1.0.2"
+#define MyAppVersion "1.0.4"
 #define MyAppPublisher "BratanVPN"
 #define MyAppExeName "BratanVPN.exe"
 #define MyAppIconName "bratanvpn.ico"
