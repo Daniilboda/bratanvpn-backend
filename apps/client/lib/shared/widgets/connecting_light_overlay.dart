@@ -17,6 +17,10 @@ class ConnectingLightOverlay extends StatefulWidget {
     required this.onAborted,
   });
 
+  /// Android connect is faster than Windows; wait at least this long before
+  /// [homeIn] so the pulse matches the Windows feel (~grow + breath at peak).
+  static const Duration androidMinPulse = Duration(milliseconds: 1700);
+
   final bool homeIn;
   final bool abort;
   final Offset target;
@@ -183,7 +187,7 @@ class _LightPainter extends CustomPainter {
     }
 
     // Cover the full 148px button (radius 74) at the end of ignition.
-    final glowR = 56.0 * coreScale;
+    final glowR = 68.0 * coreScale;
     final coreR = 15.0 * coreScale;
 
     // Dark cushion so white light pops on the white icon.
@@ -191,16 +195,25 @@ class _LightPainter extends CustomPainter {
       pos,
       glowR * 0.55,
       Paint()
-        ..color = Colors.black.withValues(alpha: 0.45 * opacity)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 14),
+        ..color = Colors.black.withValues(alpha: 0.5 * opacity)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
+    );
+
+    // Wide outer halo — stronger bloom around the button.
+    canvas.drawCircle(
+      pos,
+      glowR * 1.15,
+      Paint()
+        ..color = Colors.white.withValues(alpha: 0.28 * opacity)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28),
     );
 
     canvas.drawCircle(
       pos,
-      glowR * 0.7,
+      glowR * 0.85,
       Paint()
-        ..color = Colors.white.withValues(alpha: 0.35 * opacity)
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 16),
+        ..color = Colors.white.withValues(alpha: 0.55 * opacity)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 20),
     );
 
     canvas.drawCircle(
@@ -209,12 +222,12 @@ class _LightPainter extends CustomPainter {
       Paint()
         ..shader = RadialGradient(
           colors: [
-            Colors.white.withValues(alpha: 0.85 * opacity),
-            Colors.white.withValues(alpha: 0.4 * opacity),
-            Colors.white.withValues(alpha: 0.1 * opacity),
+            Colors.white.withValues(alpha: 0.9 * opacity),
+            Colors.white.withValues(alpha: 0.55 * opacity),
+            Colors.white.withValues(alpha: 0.22 * opacity),
             Colors.white.withValues(alpha: 0.0),
           ],
-          stops: const [0.0, 0.32, 0.62, 1.0],
+          stops: const [0.0, 0.3, 0.58, 1.0],
         ).createShader(Rect.fromCircle(center: pos, radius: glowR)),
     );
 

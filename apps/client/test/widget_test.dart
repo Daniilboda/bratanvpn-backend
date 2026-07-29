@@ -336,7 +336,7 @@ void main() {
     expect(checkApi.calls, greaterThanOrEqualTo(1));
   });
 
-  testWidgets('Revoked access clears session without status text', (
+  testWidgets('Revoked access clears session and shows blocked message', (
     WidgetTester tester,
   ) async {
     final checkApi = _FakeAccessCheckApi(status: AccessCheckStatus.revoked);
@@ -351,11 +351,15 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Доступ заблокирован'), findsNothing);
+    expect(find.text('Ключ отозван. Доступ заблокирован.'), findsOneWidget);
+    expect(find.text('Понятно'), findsOneWidget);
     expect(find.text('Подключиться'), findsOneWidget);
     expect(vault.store[SecureVaultKeys.activated], isNull);
     expect(vault.store[SecureVaultKeys.vpnConfig], isNull);
     expect(vault.store[SecureVaultKeys.accessKey], isNull);
+
+    await tester.tap(find.text('Понятно'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(Icons.power_settings_new));
     await tester.pumpAndSettle();
@@ -386,7 +390,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Подключено'), findsNothing);
-    expect(find.text('Доступ заблокирован'), findsNothing);
+    expect(find.text('Ключ отозван. Доступ заблокирован.'), findsOneWidget);
     expect(find.text('Подключиться'), findsOneWidget);
     expect(vault.store[SecureVaultKeys.activated], isNull);
   });

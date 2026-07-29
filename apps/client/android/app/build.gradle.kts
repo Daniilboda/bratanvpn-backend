@@ -43,3 +43,8 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // AmneziaWG userspace (libam-go.so) + Config parser for TUN.
+    implementation("com.zaneschepke:amneziawg-android:2.3.7")
+}

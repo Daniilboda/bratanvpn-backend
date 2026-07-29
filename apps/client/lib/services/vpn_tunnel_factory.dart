@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:client/services/vpn_tunnel.dart';
+import 'package:client/services/vpn_tunnel_android.dart';
 import 'package:client/services/vpn_tunnel_stub.dart';
 import 'package:client/services/vpn_tunnel_windows.dart';
 
@@ -14,6 +15,8 @@ VpnTunnel createVpnTunnel() {
   if (Platform.isWindows) {
     return WindowsVpnTunnel();
   }
-  // Android native VpnService — next iteration.
+  if (Platform.isAndroid) {
+    return AndroidVpnTunnel();
+  }
   return StubVpnTunnel();
 }

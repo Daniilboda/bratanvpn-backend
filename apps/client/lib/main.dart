@@ -98,7 +98,7 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
-class _HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const Color _background = Colors.black;
   static const Duration _accessCheckPeriod = Duration(minutes: 15);
   static const Duration _tunnelHealthPeriod = Duration(seconds: 5);
@@ -112,6 +112,8 @@ class _HomePageState extends State<HomePage> {
   bool _connectLightActive = false;
   bool _connectLightHomeIn = false;
   bool _connectLightAbort = false;
+  /// Invalidates in-flight connect (revoke / new tap) so UI cannot get stuck.
+  int _connectEpoch = 0;
   String? _pendingAbortMessage;
   Offset _powerButtonCenter = Offset.zero;
   final GlobalKey _powerButtonKey = GlobalKey();
@@ -124,8 +126,18 @@ class _HomePageState extends State<HomePage> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     widget.desktopShell?.beforeQuit = _onBeforeQuit;
     _restoreActivation();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // Spec: validate while the app stays alive (incl. tray / background).
+    // Resume catches revoke sooner than the 15-minute tick alone.
+    if (state == AppLifecycleState.resumed && _keyActivated) {
+      unawaited(_pollAccess());
+    }
   }
 
   Future<void> _onBeforeQuit() async {
@@ -236,13 +248,16 @@ class _HomePageState extends State<HomePage> {
     }
   }
 
-  Future<bool> _checkAccess() async {
+  Future<bool> _checkAccess({bool showBlockedAlert = true}) async {
     final accessKey = await widget.secureVault.readAccessKey();
     final deviceId = await widget.secureVault.getOrCreateDeviceId();
 
     if (accessKey == null || accessKey.isEmpty) {
       if (_keyActivated) {
-        await _applyAccessBlocked();
+        await _applyAccessBlocked(
+          message: 'Доступ заблокирован.',
+          showAlert: showBlockedAlert,
+        );
       }
       return false;
     }
@@ -257,15 +272,37 @@ class _HomePageState extends State<HomePage> {
         return true;
       }
 
-      await _applyAccessBlocked();
+      await _applyAccessBlocked(
+        message: _messageForAccessStatus(status),
+        showAlert: showBlockedAlert,
+      );
       return false;
     } on AccessCheckException {
-      // Network / API errors: keep session; do not show status text on home.
+      // Network / API errors: keep session; do not kick the user offline.
       return false;
     }
   }
 
-  Future<void> _applyAccessBlocked() async {
+  String _messageForAccessStatus(AccessCheckStatus status) {
+    return switch (status) {
+      AccessCheckStatus.revoked =>
+        'Ключ отозван. Доступ заблокирован.',
+      AccessCheckStatus.notFound => 'Ключ не найден.',
+      AccessCheckStatus.deviceMismatch =>
+        'Ключ уже активирован на другом устройстве.',
+      AccessCheckStatus.readyToActivate =>
+        'Ключ нужно активировать заново.',
+      AccessCheckStatus.unknown || AccessCheckStatus.valid =>
+        'Доступ заблокирован.',
+    };
+  }
+
+  Future<void> _applyAccessBlocked({
+    String message = 'Доступ заблокирован.',
+    bool showAlert = true,
+  }) async {
+    // Cancel any in-flight connect / pulse so the power button unsticks.
+    _connectEpoch++;
     try {
       await widget.vpnSession.disconnect();
     } on Object {
@@ -279,15 +316,24 @@ class _HomePageState extends State<HomePage> {
     _stopTunnelHealthPolling();
     _timer?.cancel();
     _timer = null;
+    _pendingAbortMessage = null;
     setState(() {
+      _connectLightActive = false;
+      _connectLightHomeIn = false;
+      _connectLightAbort = false;
       _keyActivated = false;
       _connected = false;
+      _checkingAccess = false;
       _session = Duration.zero;
     });
+    if (showAlert) {
+      await _showAccessAlert(message);
+    }
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     if (widget.desktopShell?.beforeQuit == _onBeforeQuit) {
       widget.desktopShell?.beforeQuit = null;
     }
@@ -345,6 +391,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _startTunnelAndConnect() async {
+    final epoch = ++_connectEpoch;
     _updatePowerButtonCenter();
     // Immediate feedback: spark ignites at the button center.
     setState(() {
@@ -354,26 +401,59 @@ class _HomePageState extends State<HomePage> {
       _connectLightAbort = false;
     });
     try {
+      final pulseStartedAt = DateTime.now();
       await widget.vpnSession.connect();
-      if (!mounted) {
+      if (!mounted || epoch != _connectEpoch) {
+        await _safeDisconnect();
         return;
+      }
+      // Android tunnel is often ready in <0.5s; keep the pulse as long as on Windows.
+      if (!kIsWeb && Platform.isAndroid) {
+        final elapsed = DateTime.now().difference(pulseStartedAt);
+        final remaining =
+            ConnectingLightOverlay.androidMinPulse - elapsed;
+        if (remaining > Duration.zero) {
+          await Future<void>.delayed(remaining);
+          if (!mounted || epoch != _connectEpoch) {
+            await _safeDisconnect();
+            return;
+          }
+        }
       }
       _updatePowerButtonCenter();
       // Spark flares into the lit button.
       setState(() => _connectLightHomeIn = true);
     } on AmneziaConfigException catch (error) {
-      if (mounted) {
+      if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
     } on VpnTunnelException catch (error) {
-      if (mounted) {
+      if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
     } on Exception {
-      if (mounted) {
+      if (mounted && epoch == _connectEpoch) {
         _abortConnectLight('Не удалось запустить VPN.');
       }
     }
+  }
+
+  Future<void> _safeDisconnect() async {
+    try {
+      await widget.vpnSession.disconnect();
+    } on Object {
+      // ignore
+    }
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _connectLightActive = false;
+      _connectLightHomeIn = false;
+      _connectLightAbort = false;
+      _checkingAccess = false;
+      _connected = false;
+    });
   }
 
   void _abortConnectLight(String message) {
@@ -425,10 +505,50 @@ class _HomePageState extends State<HomePage> {
       _checkingAccess = false;
     });
     if (message != null && message.isNotEmpty) {
-      _showHomeMessage(message);
+      unawaited(_showAccessAlert(message));
     }
   }
 
+  Future<void> _showAccessAlert(String message) async {
+    if (!mounted) {
+      return;
+    }
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: Colors.black,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+            side: BorderSide(color: Colors.white.withValues(alpha: 0.35)),
+          ),
+          title: const Text(
+            'BratanVPN',
+            style: TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          content: Text(
+            message,
+            style: const TextStyle(color: Colors.white, fontSize: 15, height: 1.35),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text(
+                'Понятно',
+                style: TextStyle(color: Colors.white),
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Transient non-blocking hint (kept for rare cases).
   void _showHomeMessage(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -574,14 +694,19 @@ class _HomePageState extends State<HomePage> {
                           boxShadow: _connected
                               ? [
                                   BoxShadow(
-                                    color: Colors.white.withValues(alpha: 0.45),
-                                    blurRadius: 24,
-                                    spreadRadius: 4,
+                                    color: Colors.white.withValues(alpha: 0.75),
+                                    blurRadius: 28,
+                                    spreadRadius: 6,
                                   ),
                                   BoxShadow(
-                                    color: Colors.white.withValues(alpha: 0.2),
-                                    blurRadius: 44,
-                                    spreadRadius: 10,
+                                    color: Colors.white.withValues(alpha: 0.45),
+                                    blurRadius: 48,
+                                    spreadRadius: 14,
+                                  ),
+                                  BoxShadow(
+                                    color: Colors.white.withValues(alpha: 0.22),
+                                    blurRadius: 72,
+                                    spreadRadius: 22,
                                   ),
                                 ]
                               : null,
@@ -827,9 +952,11 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
               Text(
                 _error!,
                 textAlign: TextAlign.center,
-                style: TextStyle(
-                  color: Colors.white.withValues(alpha: 0.85),
-                  fontSize: 13,
+                style: const TextStyle(
+                  color: Color(0xFFFF5252),
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  height: 1.35,
                 ),
               ),
             ],

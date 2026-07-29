@@ -1,6 +1,6 @@
 import 'package:client/services/vpn_tunnel.dart';
 
-/// Placeholder for platforms without a native tunnel yet (e.g. tests, Android WIP).
+/// Placeholder for platforms without a native tunnel yet (e.g. widget tests).
 class StubVpnTunnel implements VpnTunnel {
   bool _running = false;
 
@@ -25,3 +25,4 @@ class StubVpnTunnel implements VpnTunnel {
   @override
   Future<bool> isRunning() async => _running;
 }
+
