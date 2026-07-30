@@ -75,9 +75,9 @@ async def revoke_access_key(
     if key_from_db.status == AccessKeyStatus.REVOKED:
         return "already_revoked"
 
+    # Peer exists on VPS only while vpn_ip is set (active session).
     public_key = key_from_db.vpn_public_key
-
-    if public_key is not None:
+    if key_from_db.vpn_ip is not None and public_key is not None:
         try:
             await remove_peer_async(public_key)
         except VpnAgentError:

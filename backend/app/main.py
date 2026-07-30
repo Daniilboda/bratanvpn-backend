@@ -5,6 +5,7 @@ from app.api.admin_keys import router as admin_keys_router
 from app.api.health import router as health_router
 from app.api.validation import router as validation_router
 from app.api.vpn_config import router as vpn_config_router
+from app.api.vpn_session import router as vpn_session_router
 from app.core.config import settings
 
 
@@ -32,6 +33,11 @@ app.include_router(
 
 app.include_router(
     vpn_config_router,
+    prefix="/api/v1",
+)
+
+app.include_router(
+    vpn_session_router,
     prefix="/api/v1",
 )
 

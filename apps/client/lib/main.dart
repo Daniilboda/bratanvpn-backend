@@ -12,6 +12,7 @@ import 'package:client/services/amnezia_config_builder.dart';
 import 'package:client/services/secure_vault.dart';
 import 'package:client/services/vpn_config_api.dart';
 import 'package:client/services/vpn_session.dart';
+import 'package:client/services/vpn_session_api.dart';
 import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/vpn_tunnel_factory.dart';
 import 'package:client/shared/widgets/connecting_light_overlay.dart';
@@ -33,6 +34,7 @@ class MyApp extends StatelessWidget {
     super.key,
     this.activationApi,
     this.vpnConfigApi,
+    this.vpnSessionApi,
     this.accessCheckApi,
     this.secureVault,
     this.vpnTunnel,
@@ -41,6 +43,7 @@ class MyApp extends StatelessWidget {
 
   final ActivationApi? activationApi;
   final VpnConfigApi? vpnConfigApi;
+  final VpnSessionApi? vpnSessionApi;
   final AccessCheckApi? accessCheckApi;
   final SecureVault? secureVault;
   final VpnTunnel? vpnTunnel;
@@ -50,6 +53,7 @@ class MyApp extends StatelessWidget {
   Widget build(BuildContext context) {
     final vault = secureVault ?? SecureVault();
     final tunnel = vpnTunnel ?? createVpnTunnel();
+    final configApi = vpnConfigApi ?? VpnConfigApi();
 
     return MaterialApp(
       title: 'BratanVPN',
@@ -66,10 +70,15 @@ class MyApp extends StatelessWidget {
       ),
       home: HomePage(
         activationApi: activationApi ?? ActivationApi(),
-        vpnConfigApi: vpnConfigApi ?? VpnConfigApi(),
+        vpnConfigApi: configApi,
         accessCheckApi: accessCheckApi ?? AccessCheckApi(),
         secureVault: vault,
-        vpnSession: VpnSession(vault: vault, tunnel: tunnel),
+        vpnSession: VpnSession(
+          vault: vault,
+          tunnel: tunnel,
+          sessionApi: vpnSessionApi ?? VpnSessionApi(),
+          configApi: configApi,
+        ),
         desktopShell: desktopShell,
       ),
     );
@@ -427,6 +436,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
+    } on VpnSessionException catch (error) {
+      if (mounted && epoch == _connectEpoch) {
+        _abortConnectLight(error.userMessage);
+      }
+    } on VpnConfigException catch (error) {
+      if (mounted && epoch == _connectEpoch) {
+        _abortConnectLight(error.userMessage);
+      }
     } on VpnTunnelException catch (error) {
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
@@ -568,7 +585,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       builder: (dialogContext) {
         return _AccessKeyDialog(
           activationApi: widget.activationApi,
-          vpnConfigApi: widget.vpnConfigApi,
           secureVault: widget.secureVault,
         );
       },
@@ -799,12 +815,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 class _AccessKeyDialog extends StatefulWidget {
   const _AccessKeyDialog({
     required this.activationApi,
-    required this.vpnConfigApi,
     required this.secureVault,
   });
 
   final ActivationApi activationApi;
-  final VpnConfigApi vpnConfigApi;
   final SecureVault secureVault;
 
   @override
@@ -842,27 +856,13 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
         vpnPublicKey: keyPair.publicKeyBase64,
       );
       await widget.secureVault.saveAccessKey(accessKey);
-      await widget.secureVault.saveActivationSuccess(vpnIp: result.vpnIp);
-
-      final config = await widget.vpnConfigApi.fetchConfig(
-        accessKey: accessKey,
-        deviceId: deviceId,
-      );
-      await widget.secureVault.saveVpnConfig(config);
+      await widget.secureVault.saveActivationSuccess();
 
       if (!mounted) {
         return;
       }
       Navigator.of(context).pop(result);
     } on ActivationException catch (error) {
-      if (!mounted) {
-        return;
-      }
-      setState(() {
-        _loading = false;
-        _error = error.userMessage;
-      });
-    } on VpnConfigException catch (error) {
       if (!mounted) {
         return;
       }

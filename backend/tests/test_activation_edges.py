@@ -71,7 +71,7 @@ async def test_activate_device_mismatch(
 
 
 @pytest.mark.asyncio
-async def test_activate_rolls_back_when_vpn_agent_fails(
+async def test_connect_rolls_back_when_vpn_agent_fails(
     client: AsyncClient,
     admin_headers: dict[str, str],
     sample_device_id: str,
@@ -79,30 +79,7 @@ async def test_activate_rolls_back_when_vpn_agent_fails(
 ) -> None:
     access_key = await create_key_via_api(client, admin_headers)
 
-    with patch(
-        "app.services.activation_service.add_peer_async",
-        new=AsyncMock(side_effect=VpnAgentError("agent down")),
-    ):
-        response = await client.post(
-            "/api/v1/activate",
-            json={
-                "access_key": access_key,
-                "device_id": sample_device_id,
-                "vpn_public_key": sample_vpn_public_key,
-            },
-        )
-
-    assert response.status_code == 502
-
-    # Key must stay creatable / not stuck activated.
-    validate = await client.post(
-        "/api/v1/validate",
-        json={"key": access_key, "device_id": sample_device_id},
-    )
-    assert validate.json()["status"] == "ready_to_activate"
-
-    # Second attempt with working agent succeeds.
-    retry = await client.post(
+    activate = await client.post(
         "/api/v1/activate",
         json={
             "access_key": access_key,
@@ -110,7 +87,39 @@ async def test_activate_rolls_back_when_vpn_agent_fails(
             "vpn_public_key": sample_vpn_public_key,
         },
     )
+    assert activate.status_code == 200
+    client.add_peer_mock.assert_not_awaited()  # type: ignore[attr-defined]
+
+    with patch(
+        "app.services.vpn_session_service.add_peer_async",
+        new=AsyncMock(side_effect=VpnAgentError("agent down")),
+    ):
+        response = await client.post(
+            "/api/v1/vpn/connect",
+            json={"access_key": access_key, "device_id": sample_device_id},
+        )
+
+    assert response.status_code == 502
+
+    # Still activated / bound; config not provisioned.
+    validate = await client.post(
+        "/api/v1/validate",
+        json={"key": access_key, "device_id": sample_device_id},
+    )
+    assert validate.json()["status"] == "valid"
+
+    config = await client.get(
+        "/api/v1/vpn/config",
+        params={"access_key": access_key, "device_id": sample_device_id},
+    )
+    assert config.status_code == 409
+
+    retry = await client.post(
+        "/api/v1/vpn/connect",
+        json={"access_key": access_key, "device_id": sample_device_id},
+    )
     assert retry.status_code == 200
+    assert retry.json()["vpn_ip"].startswith("10.8.0.")
 
 
 @pytest.mark.asyncio
@@ -131,6 +140,12 @@ async def test_revoke_fails_when_vpn_agent_fails(
     )
     assert activate.status_code == 200
 
+    connect = await client.post(
+        "/api/v1/vpn/connect",
+        json={"access_key": access_key, "device_id": sample_device_id},
+    )
+    assert connect.status_code == 200
+
     with patch(
         "app.services.access_key_service.remove_peer_async",
         new=AsyncMock(side_effect=VpnAgentError("agent down")),
@@ -143,12 +158,38 @@ async def test_revoke_fails_when_vpn_agent_fails(
 
     assert response.status_code == 502
 
-    # Still activated — revoke did not commit.
     validate = await client.post(
         "/api/v1/validate",
         json={"key": access_key, "device_id": sample_device_id},
     )
     assert validate.json()["status"] == "valid"
+
+
+@pytest.mark.asyncio
+async def test_revoke_without_active_session_skips_peer_remove(
+    client: AsyncClient,
+    admin_headers: dict[str, str],
+    sample_device_id: str,
+    sample_vpn_public_key: str,
+) -> None:
+    access_key = await create_key_via_api(client, admin_headers)
+    activate = await client.post(
+        "/api/v1/activate",
+        json={
+            "access_key": access_key,
+            "device_id": sample_device_id,
+            "vpn_public_key": sample_vpn_public_key,
+        },
+    )
+    assert activate.status_code == 200
+
+    revoke = await client.patch(
+        "/api/v1/admin/keys/revoke",
+        headers=admin_headers,
+        json={"key": access_key},
+    )
+    assert revoke.status_code == 200
+    client.remove_peer_mock.assert_not_awaited()  # type: ignore[attr-defined]
 
 
 @pytest.mark.asyncio

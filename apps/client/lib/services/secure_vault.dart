@@ -35,6 +35,10 @@ class SecureVault {
     return created;
   }
 
+  Future<String?> readDeviceId() async {
+    return _storage.read(key: SecureVaultKeys.deviceId);
+  }
+
   Future<void> saveAccessKey(String accessKey) async {
     await _storage.write(key: SecureVaultKeys.accessKey, value: accessKey);
   }
@@ -96,8 +100,7 @@ class SecureVault {
     return decoded;
   }
 
-  Future<void> saveActivationSuccess({required String vpnIp}) async {
-    await _storage.write(key: SecureVaultKeys.vpnIp, value: vpnIp);
+  Future<void> saveActivationSuccess() async {
     await _storage.write(key: SecureVaultKeys.activated, value: 'true');
   }
 
@@ -106,8 +109,20 @@ class SecureVault {
     return value == 'true';
   }
 
+  Future<void> saveVpnIp(String vpnIp) async {
+    await _storage.write(key: SecureVaultKeys.vpnIp, value: vpnIp);
+  }
+
   Future<String?> readVpnIp() async {
     return _storage.read(key: SecureVaultKeys.vpnIp);
+  }
+
+  Future<void> clearVpnIp() async {
+    await _storage.delete(key: SecureVaultKeys.vpnIp);
+  }
+
+  Future<void> clearVpnConfig() async {
+    await _storage.delete(key: SecureVaultKeys.vpnConfig);
   }
 
   /// Clears activation session after revoke / access loss.

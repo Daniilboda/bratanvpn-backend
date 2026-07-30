@@ -45,14 +45,14 @@ async def activate(
             detail="Access key is activated on another device",
         )
 
-    if result == "vpn_agent_failed":
+    if result == "session_active":
         raise HTTPException(
-            status_code=502,
-            detail="Failed to provision VPN on server",
+            status_code=409,
+            detail="VPN session is active; disconnect before re-binding keys",
         )
 
     if isinstance(result, dict):
         return {
             "message": "Access key activated successfully",
-            "vpn_ip": result["vpn_ip"],
+            "status": result["status"],
         }

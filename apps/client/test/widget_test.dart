@@ -9,6 +9,7 @@ import 'package:client/services/activation_api.dart';
 import 'package:client/services/secure_vault.dart';
 import 'package:client/services/vpn_config_api.dart';
 import 'package:client/services/vpn_keypair.dart';
+import 'package:client/services/vpn_session_api.dart';
 import 'package:client/services/vpn_tunnel_stub.dart';
 
 class _FakeActivationApi extends ActivationApi {
@@ -31,7 +32,7 @@ class _FakeActivationApi extends ActivationApi {
     if (failWith != null) {
       throw failWith!;
     }
-    return const ActivationSuccess(vpnIp: '10.8.0.2');
+    return const ActivationSuccess();
   }
 }
 
@@ -164,8 +165,7 @@ class _FakeSecureVault extends SecureVault {
   }
 
   @override
-  Future<void> saveActivationSuccess({required String vpnIp}) async {
-    store[SecureVaultKeys.vpnIp] = vpnIp;
+  Future<void> saveActivationSuccess() async {
     store[SecureVaultKeys.activated] = 'true';
   }
 
@@ -173,7 +173,25 @@ class _FakeSecureVault extends SecureVault {
   Future<bool> isActivated() async => store[SecureVaultKeys.activated] == 'true';
 
   @override
+  Future<void> saveVpnIp(String vpnIp) async {
+    store[SecureVaultKeys.vpnIp] = vpnIp;
+  }
+
+  @override
   Future<String?> readVpnIp() async => store[SecureVaultKeys.vpnIp];
+
+  @override
+  Future<void> clearVpnIp() async {
+    store.remove(SecureVaultKeys.vpnIp);
+  }
+
+  @override
+  Future<void> clearVpnConfig() async {
+    store.remove(SecureVaultKeys.vpnConfig);
+  }
+
+  @override
+  Future<String?> readDeviceId() async => store[SecureVaultKeys.deviceId];
 
   @override
   Future<void> clearAccessSession() async {
@@ -184,9 +202,32 @@ class _FakeSecureVault extends SecureVault {
   }
 }
 
+class _FakeVpnSessionApi extends VpnSessionApi {
+  int connectCalls = 0;
+  int disconnectCalls = 0;
+
+  @override
+  Future<String> connect({
+    required String accessKey,
+    required String deviceId,
+  }) async {
+    connectCalls += 1;
+    return '10.8.0.2';
+  }
+
+  @override
+  Future<void> disconnect({
+    required String accessKey,
+    required String deviceId,
+  }) async {
+    disconnectCalls += 1;
+  }
+}
+
 Widget _app({
   ActivationApi? activationApi,
   VpnConfigApi? vpnConfigApi,
+  VpnSessionApi? vpnSessionApi,
   AccessCheckApi? accessCheckApi,
   SecureVault? secureVault,
   StubVpnTunnel? vpnTunnel,
@@ -194,6 +235,7 @@ Widget _app({
   return MyApp(
     activationApi: activationApi ?? _FakeActivationApi(),
     vpnConfigApi: vpnConfigApi ?? _FakeVpnConfigApi(),
+    vpnSessionApi: vpnSessionApi ?? _FakeVpnSessionApi(),
     accessCheckApi: accessCheckApi ?? _FakeAccessCheckApi(),
     secureVault: secureVault ?? _FakeSecureVault(),
     vpnTunnel: vpnTunnel ?? StubVpnTunnel(),
@@ -201,17 +243,19 @@ Widget _app({
 }
 
 void main() {
-  testWidgets('First connect activates, fetches config, then connects', (
+  testWidgets('First connect activates, then provisions session and connects', (
     WidgetTester tester,
   ) async {
     final api = _FakeActivationApi();
     final configApi = _FakeVpnConfigApi();
+    final sessionApi = _FakeVpnSessionApi();
     final vault = _FakeSecureVault();
     final tunnel = StubVpnTunnel();
     await tester.pumpWidget(
       _app(
         activationApi: api,
         vpnConfigApi: configApi,
+        vpnSessionApi: sessionApi,
         secureVault: vault,
         vpnTunnel: tunnel,
       ),
@@ -230,6 +274,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.calls, 1);
+    expect(sessionApi.connectCalls, 1);
     expect(configApi.calls, 1);
     expect(await tunnel.isRunning(), isTrue);
     expect(vault.store[SecureVaultKeys.vpnConfig], isNotNull);
@@ -254,14 +299,24 @@ void main() {
     expect(find.text('Подключено'), findsNothing);
   });
 
-  testWidgets('Shows config error after activation', (WidgetTester tester) async {
+  testWidgets('Config failure after activate does not leave tunnel up', (
+    WidgetTester tester,
+  ) async {
     final api = _FakeActivationApi();
     final configApi = _FakeVpnConfigApi(
       failWith: VpnConfigException('Не удалось получить конфигурацию VPN.'),
     );
+    final sessionApi = _FakeVpnSessionApi();
     final vault = _FakeSecureVault();
+    final tunnel = StubVpnTunnel();
     await tester.pumpWidget(
-      _app(activationApi: api, vpnConfigApi: configApi, secureVault: vault),
+      _app(
+        activationApi: api,
+        vpnConfigApi: configApi,
+        vpnSessionApi: sessionApi,
+        secureVault: vault,
+        vpnTunnel: tunnel,
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -269,12 +324,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'BRATAN-TESTKEY01');
     await tester.tap(find.widgetWithText(TextButton, 'Подключиться'));
-    await tester.pumpAndSettle();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
 
     expect(api.calls, 1);
+    expect(sessionApi.connectCalls, 1);
     expect(configApi.calls, 1);
-    expect(find.text('Не удалось получить конфигурацию VPN.'), findsOneWidget);
-    expect(find.text('Введите ключ доступа'), findsOneWidget);
+    expect(await tunnel.isRunning(), isFalse);
     expect(find.text('Подключено'), findsNothing);
   });
 

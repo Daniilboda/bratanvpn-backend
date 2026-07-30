@@ -56,19 +56,24 @@ async def client(
 
     with (
         patch(
-            "app.services.activation_service.add_peer_async",
+            "app.services.vpn_session_service.add_peer_async",
             new_callable=AsyncMock,
         ) as add_peer,
         patch(
+            "app.services.vpn_session_service.remove_peer_async",
+            new_callable=AsyncMock,
+        ) as remove_peer_session,
+        patch(
             "app.services.access_key_service.remove_peer_async",
             new_callable=AsyncMock,
-        ) as remove_peer,
+        ) as remove_peer_revoke,
     ):
         transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             # Attach mocks for assertions in tests.
             ac.add_peer_mock = add_peer  # type: ignore[attr-defined]
-            ac.remove_peer_mock = remove_peer  # type: ignore[attr-defined]
+            ac.remove_peer_mock = remove_peer_revoke  # type: ignore[attr-defined]
+            ac.remove_peer_session_mock = remove_peer_session  # type: ignore[attr-defined]
             yield ac
 
     app.dependency_overrides.clear()

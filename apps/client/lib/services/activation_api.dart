@@ -5,9 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:client/services/api_config.dart';
 
 class ActivationSuccess {
-  const ActivationSuccess({required this.vpnIp});
-
-  final String vpnIp;
+  const ActivationSuccess();
 }
 
 class ActivationException implements Exception {
@@ -27,6 +25,7 @@ class ActivationApi {
   final http.Client _client;
   final String baseUrl;
 
+  /// Binds access key to this device. Does not allocate vpn_ip / peer.
   Future<ActivationSuccess> activate({
     required String accessKey,
     required String deviceId,
@@ -52,12 +51,7 @@ class ActivationApi {
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final vpnIp = body['vpn_ip'] as String?;
-      if (vpnIp == null || vpnIp.isEmpty) {
-        throw ActivationException('Сервер временно недоступен.');
-      }
-      return ActivationSuccess(vpnIp: vpnIp);
+      return const ActivationSuccess();
     }
 
     throw ActivationException(

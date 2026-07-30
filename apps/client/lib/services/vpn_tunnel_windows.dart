@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/windows_named_pipe.dart';
+import 'package:client/services/windows_process_hidden.dart';
 
 /// Windows tunnel via BratanVPN helper service + sidecared AmneziaWG.
 ///
@@ -19,6 +20,7 @@ class WindowsVpnTunnel implements VpnTunnel {
 
   static const String _helperService = 'BratanVpnHelper';
   static const String _pipePath = r'\\.\pipe\BratanVpnHelper';
+  static const String _scExe = r'C:\Windows\System32\sc.exe';
 
   final WindowsNamedPipeClient _pipe = WindowsNamedPipeClient(_pipePath);
 
@@ -54,11 +56,21 @@ class WindowsVpnTunnel implements VpnTunnel {
 
   @override
   Future<bool> isRunning() async {
-    // Prefer fast sc.exe query — no pipe round-trip.
-    final result = await Process.run(
-      'sc',
+    // Prefer helper pipe — no console window, no sc.exe.
+    if (await _helperReachable()) {
+      try {
+        final resp = await _pipe.transact('STATUS').timeout(
+          const Duration(milliseconds: 800),
+        );
+        return resp.trim().toUpperCase() == 'RUNNING';
+      } on Object {
+        // Fall through to sc query.
+      }
+    }
+
+    final result = await runHidden(
+      _scExe,
       ['query', 'AmneziaWGTunnel\$$tunnelName'],
-      runInShell: false,
     );
     if (result.exitCode != 0) {
       return false;
@@ -71,11 +83,7 @@ class WindowsVpnTunnel implements VpnTunnel {
       return;
     }
 
-    await Process.run(
-      'sc',
-      ['start', _helperService],
-      runInShell: false,
-    );
+    await runHidden(_scExe, ['start', _helperService]);
     if (await _waitHelperReachable()) {
       return;
     }
@@ -91,31 +99,23 @@ class WindowsVpnTunnel implements VpnTunnel {
 
   Future<void> _elevateInstallHelper() async {
     final helper = await _resolveHelperExe();
-    final result = await Process.run(
-      'powershell.exe',
-      [
-        '-NoProfile',
-        '-ExecutionPolicy',
-        'Bypass',
-        '-Command',
-        "\$p = Start-Process -FilePath '${_psEscape(helper)}' "
-            "-ArgumentList 'install' -Verb RunAs -Wait -PassThru; "
-            'if (\$null -eq \$p) { exit 1 }; exit \$p.ExitCode',
-      ],
-      runInShell: false,
-    );
-    if (result.exitCode != 0) {
-      final err = _combinedOutput(result);
-      if (_looksLikeElevationError(err) ||
-          err.toLowerCase().contains('canceled') ||
-          err.toLowerCase().contains('cancelled') ||
-          err.toLowerCase().contains('отмен')) {
-        throw VpnTunnelException(
-          'Нужно разрешить установку VPN-компонента в окне Windows.',
-        );
-      }
+    late final int exitCode;
+    try {
+      exitCode = await elevateRunHidden(helper, 'install');
+    } on Object {
       throw VpnTunnelException('Не удалось установить компонент VPN.');
     }
+
+    if (exitCode == 0) {
+      return;
+    }
+    // ERROR_CANCELLED = 1223 — user dismissed UAC.
+    if (exitCode == 1223) {
+      throw VpnTunnelException(
+        'Нужно разрешить установку VPN-компонента в окне Windows.',
+      );
+    }
+    throw VpnTunnelException('Не удалось установить компонент VPN.');
   }
 
   Future<String> _resolveHelperExe() async {
@@ -193,9 +193,6 @@ class WindowsVpnTunnel implements VpnTunnel {
     if (_looksLikeElevationError(low)) {
       return 'Нужно разрешить установку VPN-компонента в окне Windows.';
     }
-    if (low.contains('err ')) {
-      return 'Не удалось управлять VPN.';
-    }
     return 'Не удалось запустить VPN.';
   }
 
@@ -229,15 +226,11 @@ class WindowsVpnTunnel implements VpnTunnel {
     return '${result.stdout}\n${result.stderr}'.trim();
   }
 
-  String _psEscape(String value) {
-    return value.replaceAll("'", "''");
-  }
-
   bool _looksLikeElevationError(String text) {
-    final lower = text.toLowerCase();
-    return lower.contains('access is denied') ||
-        lower.contains('отказано в доступе') ||
-        lower.contains('elevation') ||
-        lower.contains('administrator');
+    return text.contains('canceled') ||
+        text.contains('cancelled') ||
+        text.contains('отмен') ||
+        text.contains('elevation') ||
+        text.contains('1223');
   }
 }
