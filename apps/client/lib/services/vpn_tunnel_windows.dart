@@ -35,7 +35,10 @@ class WindowsVpnTunnel implements VpnTunnel {
 
     final resp = await _pipeCommand('START ${confFile.path}');
     if (!_isOk(resp)) {
-      throw VpnTunnelException(_userFacingPipeError(resp));
+      throw VpnTunnelException(
+        _userFacingPipeError(resp),
+        detail: resp.trim(),
+      );
     }
     // Helper already waits until the tunnel service is RUNNING before OK.
   }
@@ -46,7 +49,10 @@ class WindowsVpnTunnel implements VpnTunnel {
       if (await _helperReachable()) {
         final resp = await _pipeCommand('STOP');
         if (!_isOk(resp) && !_isAlreadyStopped(resp)) {
-          throw VpnTunnelException(_userFacingPipeError(resp));
+          throw VpnTunnelException(
+            _userFacingPipeError(resp),
+            detail: resp.trim(),
+          );
         }
       }
     } finally {
@@ -173,6 +179,7 @@ class WindowsVpnTunnel implements VpnTunnel {
     } on Object catch (error) {
       throw VpnTunnelException(
         'Нет связи с VPN-службой (${error.runtimeType}).',
+        detail: error.toString(),
       );
     }
   }

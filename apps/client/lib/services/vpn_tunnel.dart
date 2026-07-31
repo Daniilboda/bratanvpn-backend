@@ -8,9 +8,13 @@ abstract class VpnTunnel {
 }
 
 class VpnTunnelException implements Exception {
-  VpnTunnelException(this.userMessage);
+  VpnTunnelException(this.userMessage, {this.detail});
 
+  /// Safe message for UI.
   final String userMessage;
+
+  /// Technical detail for diag logs (e.g. raw helper pipe response). Not for UI.
+  final String? detail;
 
   @override
   String toString() => userMessage;

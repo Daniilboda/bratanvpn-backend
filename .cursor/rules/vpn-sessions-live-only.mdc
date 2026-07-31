@@ -12,7 +12,8 @@ Decision (2026-07-31):
 - `vpn_ip` exists only while the row exists.
 - Do not store closed-session history in `vpn_sessions` for MVP.
 - `devices` has **no** `vpn_ip` column.
-- Session limit: `MAX_ACTIVE_SESSIONS = 2` (raise to 3 later).
+- Session limit: **2 устройства в VPN** (`MAX_ACTIVE_SESSIONS = 2`; raise to 3 later).
+- `devices` may have more than 2 binds; only online sessions are limited.
 - Remote disconnect is out of scope until explicitly requested.
 
 ## How connect limit is checked

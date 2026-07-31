@@ -96,13 +96,20 @@ class VpnSession {
         'vpn_ip': vpnIp,
       });
     } on Object catch (error) {
-      await DiagLog.instance.error('tunnel_start_fail', {
+      final fields = <String, Object?>{
         'device_id': shortId,
         'vpn_ip': vpnIp,
         'error': error is VpnTunnelException
             ? error.userMessage
             : error.runtimeType,
-      });
+      };
+      if (error is VpnTunnelException) {
+        final detail = error.detail?.trim();
+        if (detail != null && detail.isNotEmpty) {
+          fields['pipe'] = detail;
+        }
+      }
+      await DiagLog.instance.error('tunnel_start_fail', fields);
       // Best-effort: free server slot if local tunnel failed to start.
       try {
         await sessionApi.disconnect(

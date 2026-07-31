@@ -76,6 +76,12 @@ func cmdInstall() error {
 	}
 	exeDir := filepath.Dir(exe)
 
+	// Stop helper service first so ProgramData binaries can be replaced and the
+	// new process actually loads on start (in-memory old exe would otherwise stay).
+	if err := stopHelperService(); err != nil {
+		return err
+	}
+
 	if err := os.MkdirAll(installDir, 0o755); err != nil {
 		return err
 	}
@@ -131,6 +137,31 @@ func cmdInstall() error {
 	}
 	s.Close()
 	return startService()
+}
+
+func stopHelperService() error {
+	m, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer m.Disconnect()
+
+	s, err := m.OpenService(serviceName)
+	if err != nil {
+		return nil // not installed yet
+	}
+	defer s.Close()
+
+	_, _ = s.Control(svc.Stop)
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		st, qErr := s.Query()
+		if qErr != nil || st.State == svc.Stopped {
+			return nil
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+	return fmt.Errorf("helper service did not stop")
 }
 
 func findAmneziaSourceDir(helperExeDir string) (string, error) {
@@ -338,35 +369,92 @@ func runAmnezia(args ...string) error {
 	return nil
 }
 
-func startTunnel(confPath string) error {
-	if _, err := os.Stat(confPath); err != nil {
-		return fmt.Errorf("conf not found: %w", err)
+func isTunnelAbsentErr(err error) bool {
+	if err == nil {
+		return false
 	}
-	// Replace any previous tunnel instance.
-	_ = runAmnezia("/uninstalltunnelservice", tunnelName)
-	if err := runAmnezia("/installtunnelservice", confPath); err != nil {
-		return err
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "cannot find") ||
+		strings.Contains(low, "not found") ||
+		strings.Contains(low, "does not exist")
+}
+
+func isAlreadyInstalledErr(err error) bool {
+	if err == nil {
+		return false
 	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "already installed") ||
+		strings.Contains(low, "already running")
+}
+
+// ensureTunnelRemoved uninstalls the AmneziaWG tunnel service and waits until
+// it is no longer RUNNING. Safe if the tunnel was never installed.
+func ensureTunnelRemoved() error {
+	err := runAmnezia("/uninstalltunnelservice", tunnelName)
+	if err != nil && !isTunnelAbsentErr(err) {
+		// Keep trying the wait loop — uninstall may have partially worked.
+	}
+
 	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if !tunnelRunning() {
+			return nil
+		}
+		_ = runAmnezia("/uninstalltunnelservice", tunnelName)
+		time.Sleep(300 * time.Millisecond)
+	}
+	if tunnelRunning() {
+		return fmt.Errorf("could not remove existing tunnel service")
+	}
+	return nil
+}
+
+func waitTunnelRunning(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if tunnelRunning() {
 			return nil
 		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	_ = runAmnezia("/uninstalltunnelservice", tunnelName)
 	return fmt.Errorf("tunnel service did not reach RUNNING")
 }
 
+func installTunnelService(confPath string) error {
+	err := runAmnezia("/installtunnelservice", confPath)
+	if err == nil {
+		return nil
+	}
+	if !isAlreadyInstalledErr(err) {
+		return err
+	}
+	// Stale service still present — remove and retry once.
+	if remErr := ensureTunnelRemoved(); remErr != nil {
+		return fmt.Errorf("%v; remove retry: %v", err, remErr)
+	}
+	return runAmnezia("/installtunnelservice", confPath)
+}
+
+func startTunnel(confPath string) error {
+	if _, err := os.Stat(confPath); err != nil {
+		return fmt.Errorf("conf not found: %w", err)
+	}
+	if err := ensureTunnelRemoved(); err != nil {
+		return err
+	}
+	if err := installTunnelService(confPath); err != nil {
+		return err
+	}
+	if err := waitTunnelRunning(8 * time.Second); err != nil {
+		_ = ensureTunnelRemoved()
+		return err
+	}
+	return nil
+}
+
 func stopTunnel() error {
-	err := runAmnezia("/uninstalltunnelservice", tunnelName)
-	if err != nil {
-		low := strings.ToLower(err.Error())
-		if strings.Contains(low, "cannot find") ||
-			strings.Contains(low, "not found") ||
-			strings.Contains(low, "does not exist") {
-			return nil
-		}
+	if err := ensureTunnelRemoved(); err != nil {
 		return err
 	}
 	return nil

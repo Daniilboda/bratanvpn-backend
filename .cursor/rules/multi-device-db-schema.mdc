@@ -47,7 +47,9 @@ Relations: `access_keys` 1→N `devices`; device 0..1 live `vpn_sessions` row.
 | disconnect / revoke cleanup | DELETE `vpn_sessions` row(s) + remove peer(s) |
 | unbind | DELETE device (cascades session if any) |
 
-Limit: `MAX_ACTIVE_SESSIONS = 2` (see `backend/app/core/limits.py`). Count **sessions**, not devices.
+Limit: **2 устройства одновременно в VPN** (`MAX_ACTIVE_SESSIONS = 2` in
+`backend/app/core/limits.py`). Count **live `vpn_sessions`**, not rows in `devices`
+(привязок может быть больше 2). Raise to 3 later (Excel #53).
 
 `started_at`: wall-clock start of the live slot (UI timer / diagnostics). Not session history.
 
