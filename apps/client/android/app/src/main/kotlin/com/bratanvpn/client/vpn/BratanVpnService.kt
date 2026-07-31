@@ -127,7 +127,10 @@ class BratanVpnService : VpnService() {
         }
 
         val established = builder.establish()
-            ?: throw IllegalStateException("Система отклонила VPN-интерфейс")
+            ?: throw IllegalStateException(
+                "Не удалось включить VPN. Выключите другой VPN " +
+                    "или Always-on VPN в настройках Android и повторите.",
+            )
 
         val goConfig = config.toAwgQuickStringResolved(
             /* includeScripts = */ false,

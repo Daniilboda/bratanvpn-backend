@@ -190,6 +190,10 @@ class WindowsVpnTunnel implements VpnTunnel {
 
   String _userFacingPipeError(String response) {
     final low = response.toLowerCase();
+    if (low.contains('other_vpn_active')) {
+      return 'На этом устройстве уже включён другой VPN. '
+          'Выключите его, затем подключите BratanVPN.';
+    }
     if (_looksLikeElevationError(low)) {
       return 'Нужно разрешить установку VPN-компонента в окне Windows.';
     }

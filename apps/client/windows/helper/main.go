@@ -30,7 +30,7 @@ const (
 	displayName = "BratanVPN Tunnel Helper"
 	pipePath    = `\\.\pipe\BratanVpnHelper`
 	// Authenticated users may talk to the pipe; SYSTEM/Admins full control.
-	pipeSDDL = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)"
+	pipeSDDL   = "D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;AU)"
 	tunnelName = "bratanvpn"
 	installDir = `C:\ProgramData\BratanVPN`
 )
@@ -342,7 +342,13 @@ func startTunnel(confPath string) error {
 	if _, err := os.Stat(confPath); err != nil {
 		return fmt.Errorf("conf not found: %w", err)
 	}
-	// Replace any previous tunnel instance.
+
+	// One device must never run Bratan + another VPN at the same time.
+	if name := detectForeignVpn(); name != "" {
+		return fmt.Errorf("OTHER_VPN_ACTIVE: %s", name)
+	}
+
+	// Replace any previous Bratan tunnel instance only.
 	_ = runAmnezia("/uninstalltunnelservice", tunnelName)
 	if err := runAmnezia("/installtunnelservice", confPath); err != nil {
 		return err
@@ -379,4 +385,155 @@ func tunnelRunning() bool {
 		return false
 	}
 	return strings.Contains(strings.ToUpper(string(out)), "RUNNING")
+}
+
+// detectForeignVpn returns a short label of another active VPN, or "".
+// Read-only — does not stop/delete foreign services.
+func detectForeignVpn() string {
+	ownTunnel := strings.ToUpper("AmneziaWGTunnel$" + tunnelName)
+
+	for _, name := range runningServiceNames() {
+		upper := strings.ToUpper(name)
+		if upper == ownTunnel || upper == "BRATANVPNHELPER" {
+			continue
+		}
+		if isForeignVpnServiceName(upper) {
+			return name
+		}
+	}
+
+	if proc := foreignVpnProcess(); proc != "" {
+		return "process:" + proc
+	}
+
+	if ras := activeRasConnection(); ras != "" {
+		return "RAS:" + ras
+	}
+	return ""
+}
+
+func runningServiceNames() []string {
+	// `sc query state= active` is invalid on some Windows builds (error 87).
+	out, err := exec.Command(
+		"wmic",
+		"service",
+		"where",
+		"state='running'",
+		"get",
+		"name",
+		"/value",
+	).CombinedOutput()
+	if err != nil {
+		// Fallback: enumerate all and keep only RUNNING blocks.
+		return runningServiceNamesFromSC()
+	}
+	var names []string
+	for _, line := range strings.Split(string(out), "\n") {
+		line = strings.TrimSpace(line)
+		if len(line) < 6 || !strings.HasPrefix(strings.ToLower(line), "name=") {
+			continue
+		}
+		name := strings.TrimSpace(line[5:])
+		if name != "" {
+			names = append(names, name)
+		}
+	}
+	return names
+}
+
+func runningServiceNamesFromSC() []string {
+	out, err := exec.Command("sc.exe", "query", "state=", "all").CombinedOutput()
+	if err != nil {
+		return nil
+	}
+	var names []string
+	var current string
+	for _, line := range strings.Split(string(out), "\n") {
+		trim := strings.TrimSpace(line)
+		upper := strings.ToUpper(trim)
+		if strings.HasPrefix(upper, "SERVICE_NAME:") {
+			current = strings.TrimSpace(trim[len("SERVICE_NAME:"):])
+			continue
+		}
+		if current != "" && strings.HasPrefix(upper, "STATE") && strings.Contains(upper, "RUNNING") {
+			names = append(names, current)
+			current = ""
+		}
+	}
+	return names
+}
+
+func isForeignVpnServiceName(upper string) bool {
+	// Active tunnel services from other WireGuard/AmneziaWG profiles.
+	if strings.HasPrefix(upper, "AMNEZIAWGTUNNEL$") ||
+		strings.HasPrefix(upper, "WIREGUARDTUNNEL$") {
+		return true
+	}
+	// Do NOT match idle managers (WireGuardManager) or always-on daemons
+	// like SOTA-DAEMON (runs even when Sota is disconnected).
+	markers := []string{
+		"OPENVPN",
+		"NORDVPN",
+		"NORDLYNX",
+		"MULLVAD",
+		"SURFSHARK",
+		"EXPRESSVPN",
+		"PROTONVPN",
+		"AMNEZIAVPN",
+		"CLOUDFLAREWARP",
+		"ANYCONNECT",
+		"GLOBALPROTECT",
+		"SOFTETHER",
+	}
+	for _, kw := range markers {
+		if strings.Contains(upper, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// foreignVpnProcess detects an active VPN data-plane process (not just a tray UI).
+func foreignVpnProcess() string {
+	out, err := exec.Command("tasklist", "/FO", "CSV", "/NH").CombinedOutput()
+	if err != nil {
+		return ""
+	}
+	// Engines that usually exist only while a tunnel/proxy VPN is up.
+	engines := []string{
+		"sing-box.exe", // Sota while connected (daemon alone is NOT enough)
+		"openvpn.exe",
+	}
+	low := strings.ToLower(string(out))
+	for _, eng := range engines {
+		if strings.Contains(low, strings.ToLower(eng)) {
+			return eng
+		}
+	}
+	return ""
+}
+
+func activeRasConnection() string {
+	out, err := exec.Command("rasdial.exe").CombinedOutput()
+	if err != nil && len(out) == 0 {
+		return ""
+	}
+	text := string(out)
+	low := strings.ToLower(text)
+	if strings.Contains(low, "no connections") ||
+		strings.Contains(low, "нет подключен") {
+		return ""
+	}
+	for _, line := range strings.Split(text, "\n") {
+		trimmed := strings.TrimSpace(line)
+		lowLine := strings.ToLower(trimmed)
+		if strings.HasPrefix(lowLine, "connected to ") {
+			return strings.TrimSpace(trimmed[len("Connected to "):])
+		}
+		if strings.HasPrefix(lowLine, "подключено к ") ||
+			strings.HasPrefix(lowLine, "подключен к ") {
+			return trimmed
+		}
+	}
+	return ""
 }
