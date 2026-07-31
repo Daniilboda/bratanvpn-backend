@@ -207,7 +207,7 @@ async def test_restore_then_activate_and_connect_again(
         json={"key": access_key},
     )
     assert restore.status_code == 200
-    assert restore.json()["status"] == "restored_to_created"
+    assert restore.json()["status"] == "restored_to_activated"
 
     new_pubkey = "TESTPUBLICKEYBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB="
     activate2 = await client.post(

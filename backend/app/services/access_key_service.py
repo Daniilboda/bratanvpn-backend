@@ -1,8 +1,11 @@
 import secrets
 
-from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 from app.models.access_key import AccessKey
+from app.models.device import Device
 from app.models.enums import AccessKeyStatus
 from app.services.vpn_agent_client import VpnAgentError, remove_peer_async
 
@@ -28,17 +31,16 @@ async def create_access_key(
     return new_access_key
 
 
-
 async def validate_access_key(
     session: AsyncSession,
     key: str,
     device_id: str,
 ) -> str:
-    query = select(AccessKey).where(
-        AccessKey.key == key
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == key)
+        .options(selectinload(AccessKey.devices))
     )
-
-    result = await session.execute(query)
     key_from_db = result.scalar_one_or_none()
 
     if key_from_db is None:
@@ -50,23 +52,27 @@ async def validate_access_key(
     if key_from_db.status == AccessKeyStatus.CREATED:
         return "ready_to_activate"
 
-    if key_from_db.device_id != device_id:
+    if not any(d.device_id == device_id for d in key_from_db.devices):
+        # Key activated on other device(s), but this client is not bound yet.
+        # Client may still call activate to bind — validate as ready_to_activate
+        # only when no devices; otherwise device_mismatch keeps old UX for
+        # unregistered device_id until it binds.
         return "device_mismatch"
 
     return "valid"
-
-
 
 
 async def revoke_access_key(
     session: AsyncSession,
     key: str,
 ) -> str:
-    query = select(AccessKey).where(
-        AccessKey.key == key
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == key)
+        .options(
+            selectinload(AccessKey.devices).selectinload(Device.sessions),
+        )
     )
-
-    result = await session.execute(query)
     key_from_db = result.scalar_one_or_none()
 
     if key_from_db is None:
@@ -75,36 +81,31 @@ async def revoke_access_key(
     if key_from_db.status == AccessKeyStatus.REVOKED:
         return "already_revoked"
 
-    # Peer exists on VPS only while vpn_ip is set (active session).
-    public_key = key_from_db.vpn_public_key
-    if key_from_db.vpn_ip is not None and public_key is not None:
-        try:
-            await remove_peer_async(public_key)
-        except VpnAgentError:
-            return "vpn_agent_failed"
+    for device in key_from_db.devices:
+        if device.sessions:
+            try:
+                await remove_peer_async(device.vpn_public_key)
+            except VpnAgentError:
+                return "vpn_agent_failed"
+            for vpn_session in list(device.sessions):
+                await session.delete(vpn_session)
 
     key_from_db.status = "revoked"
-    key_from_db.vpn_ip = None
-    key_from_db.vpn_public_key = None
-    key_from_db.device_id = None
-
     await session.commit()
     await session.refresh(key_from_db)
 
     return "revoked"
 
 
-
-
 async def restore_access_key(
     session: AsyncSession,
     key: str,
 ) -> str:
-    query = select(AccessKey).where(
-        AccessKey.key == key
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == key)
+        .options(selectinload(AccessKey.devices))
     )
-
-    result = await session.execute(query)
     key_from_db = result.scalar_one_or_none()
 
     if key_from_db is None:
@@ -113,7 +114,7 @@ async def restore_access_key(
     if key_from_db.status != AccessKeyStatus.REVOKED:
         return "not_revoked"
 
-    if key_from_db.device_id is not None:
+    if key_from_db.devices:
         key_from_db.status = AccessKeyStatus.ACTIVATED
         new_status = "restored_to_activated"
     else:
@@ -124,7 +125,6 @@ async def restore_access_key(
     await session.refresh(key_from_db)
 
     return new_status
-
 
 
 async def get_access_keys(

@@ -1,14 +1,58 @@
-"""VPN session lifecycle: allocate IP + peer on connect, clear on disconnect.
+"""VPN session lifecycle on devices + vpn_sessions (Multi Device canvas)."""
 
-Still 1 access key = 1 device. vpn_ip is only set while the session is active.
-"""
+from __future__ import annotations
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
+from app.core.limits import MAX_ACTIVE_SESSIONS
 from app.models.access_key import AccessKey
+from app.models.device import Device
+from app.models.vpn_session import VpnSession
 from app.services.vpn_agent_client import VpnAgentError, add_peer_async, remove_peer_async
 from app.services.vpn_service import allocate_ip
+
+
+async def _get_key_with_devices(
+    session: AsyncSession,
+    access_key: str,
+) -> AccessKey | None:
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == access_key)
+        .options(selectinload(AccessKey.devices))
+    )
+    return result.scalar_one_or_none()
+
+
+def _find_device(key: AccessKey, device_id: str) -> Device | None:
+    for device in key.devices:
+        if device.device_id == device_id:
+            return device
+    return None
+
+
+async def _active_session(
+    session: AsyncSession,
+    device_pk: int,
+) -> VpnSession | None:
+    result = await session.execute(
+        select(VpnSession).where(VpnSession.device_id == device_pk)
+    )
+    return result.scalar_one_or_none()
+
+
+async def _count_sessions_for_key(
+    session: AsyncSession,
+    access_key_id: int,
+) -> int:
+    result = await session.execute(
+        select(func.count())
+        .select_from(VpnSession)
+        .where(VpnSession.access_key_id == access_key_id)
+    )
+    return int(result.scalar_one())
 
 
 async def connect_vpn_session(
@@ -16,9 +60,7 @@ async def connect_vpn_session(
     access_key: str,
     device_id: str,
 ) -> str | dict:
-    query = select(AccessKey).where(AccessKey.key == access_key)
-    result = await session.execute(query)
-    key_from_db = result.scalar_one_or_none()
+    key_from_db = await _get_key_with_devices(session, access_key)
 
     if key_from_db is None:
         return "not_found"
@@ -29,24 +71,32 @@ async def connect_vpn_session(
     if key_from_db.status != "activated":
         return "not_activated"
 
-    if key_from_db.device_id != device_id:
+    device = _find_device(key_from_db, device_id)
+    if device is None:
         return "device_mismatch"
 
-    if key_from_db.vpn_public_key is None:
-        return "missing_public_key"
-
-    # Idempotent: already provisioned for an active session.
-    if key_from_db.vpn_ip is not None:
+    existing = await _active_session(session, device.id)
+    if existing is not None:
         return {
             "status": "connected",
-            "vpn_ip": key_from_db.vpn_ip,
+            "vpn_ip": existing.vpn_ip,
         }
 
+    slots = await _count_sessions_for_key(session, key_from_db.id)
+    if slots >= MAX_ACTIVE_SESSIONS:
+        return "session_limit"
+
     vpn_ip = await allocate_ip(session)
-    key_from_db.vpn_ip = vpn_ip
+    session.add(
+        VpnSession(
+            access_key_id=key_from_db.id,
+            device_id=device.id,
+            vpn_ip=vpn_ip,
+        )
+    )
 
     try:
-        await add_peer_async(key_from_db.vpn_public_key, vpn_ip)
+        await add_peer_async(device.vpn_public_key, vpn_ip)
     except VpnAgentError:
         await session.rollback()
         return "vpn_agent_failed"
@@ -64,9 +114,7 @@ async def disconnect_vpn_session(
     access_key: str,
     device_id: str,
 ) -> str | dict:
-    query = select(AccessKey).where(AccessKey.key == access_key)
-    result = await session.execute(query)
-    key_from_db = result.scalar_one_or_none()
+    key_from_db = await _get_key_with_devices(session, access_key)
 
     if key_from_db is None:
         return "not_found"
@@ -77,19 +125,20 @@ async def disconnect_vpn_session(
     if key_from_db.status != "activated":
         return "not_activated"
 
-    if key_from_db.device_id != device_id:
+    device = _find_device(key_from_db, device_id)
+    if device is None:
         return "device_mismatch"
 
-    public_key = key_from_db.vpn_public_key
-    had_session = key_from_db.vpn_ip is not None
+    existing = await _active_session(session, device.id)
+    if existing is None:
+        return {"status": "disconnected"}
 
-    if had_session and public_key is not None:
-        try:
-            await remove_peer_async(public_key)
-        except VpnAgentError:
-            return "vpn_agent_failed"
+    try:
+        await remove_peer_async(device.vpn_public_key)
+    except VpnAgentError:
+        return "vpn_agent_failed"
 
-    key_from_db.vpn_ip = None
+    await session.delete(existing)
     await session.commit()
 
     return {

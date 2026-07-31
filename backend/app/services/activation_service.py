@@ -1,7 +1,10 @@
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.access_key import AccessKey
+from app.models.device import Device
+from app.models.vpn_session import VpnSession
 
 
 async def activate_access_key(
@@ -10,10 +13,14 @@ async def activate_access_key(
     device_id: str,
     vpn_public_key: str,
 ) -> str | dict:
-    """Bind access key to one device. Does not allocate vpn_ip or add AWG peer."""
-    query = select(AccessKey).where(AccessKey.key == access_key)
-
-    result = await session.execute(query)
+    """Bind access key to a device (multi-device). Does not allocate vpn_ip / peer."""
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == access_key)
+        .options(
+            selectinload(AccessKey.devices).selectinload(Device.sessions),
+        )
+    )
     key_from_db = result.scalar_one_or_none()
 
     if key_from_db is None:
@@ -22,26 +29,30 @@ async def activate_access_key(
     if key_from_db.status == "revoked":
         return "revoked"
 
-    if key_from_db.status == "activated":
-        if key_from_db.device_id == device_id:
-            # Idempotent re-bind; keep existing public key unless client sends a new one
-            # for the same device (e.g. reinstall with same device_id — rare).
-            if key_from_db.vpn_public_key != vpn_public_key:
-                # Do not swap keys while a live session may exist.
-                if key_from_db.vpn_ip is not None:
-                    return "session_active"
-                key_from_db.vpn_public_key = vpn_public_key
-                await session.commit()
-            return {
-                "status": "activated",
-            }
+    existing = next(
+        (d for d in key_from_db.devices if d.device_id == device_id),
+        None,
+    )
 
-        return "device_mismatch"
+    if existing is not None:
+        if existing.vpn_public_key != vpn_public_key:
+            if existing.sessions:
+                return "session_active"
+            existing.vpn_public_key = vpn_public_key
+            await session.commit()
+        return {"status": "activated"}
 
-    key_from_db.status = "activated"
-    key_from_db.device_id = device_id
-    key_from_db.vpn_public_key = vpn_public_key
-    key_from_db.vpn_ip = None
+    # Another device may already be bound — that is allowed (multi-device).
+    session.add(
+        Device(
+            access_key_id=key_from_db.id,
+            device_id=device_id,
+            vpn_public_key=vpn_public_key,
+            platform=None,
+        )
+    )
+    if key_from_db.status == "created":
+        key_from_db.status = "activated"
 
     await session.commit()
 

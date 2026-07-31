@@ -48,7 +48,6 @@ async def test_admin_create_list_get_filter(
     assert len(keys) >= 2
     by_key = {item["key"]: item for item in keys}
     assert by_key[key_a]["status"] == "activated"
-    assert by_key[key_a]["device_id"] == sample_device_id
     assert by_key[key_b]["status"] == "created"
 
     created_only = await client.get(

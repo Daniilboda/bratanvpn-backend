@@ -41,6 +41,11 @@ def _raise_for_session_result(result: str | dict) -> dict:
             status_code=502,
             detail="Failed to provision VPN on server",
         )
+    if result == "session_limit":
+        raise HTTPException(
+            status_code=409,
+            detail="Active session limit reached (2)",
+        )
     if isinstance(result, dict):
         return result
     raise HTTPException(status_code=500, detail="Unexpected VPN session error")

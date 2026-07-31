@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 
 
 class AccessKey(Base):
+    """Access key — fields match Multi Device Db Schema canvas."""
+
     __tablename__ = "access_keys"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -27,24 +29,6 @@ class AccessKey(Base):
         String(20),
         default="created",
         nullable=False,
-    )
-
-    # Legacy 1-key-1-device fields — kept until API cutover (stage 7).
-    device_id: Mapped[str | None] = mapped_column(
-        String,
-        nullable=True,
-    )
-
-    vpn_public_key: Mapped[str | None] = mapped_column(
-        String(255),
-        unique=True,
-        nullable=True,
-    )
-
-    vpn_ip: Mapped[str | None] = mapped_column(
-        String(45),
-        unique=True,
-        nullable=True,
     )
 
     devices: Mapped[list[Device]] = relationship(

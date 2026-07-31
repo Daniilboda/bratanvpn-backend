@@ -27,7 +27,7 @@ async def test_activate_unknown_key(
 
 
 @pytest.mark.asyncio
-async def test_activate_device_mismatch(
+async def test_activate_second_device_ok(
     client: AsyncClient,
     admin_headers: dict[str, str],
     sample_device_id: str,
@@ -53,21 +53,27 @@ async def test_activate_device_mismatch(
             "vpn_public_key": "OTHERPUBLICKEYAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
         },
     )
-    assert second.status_code == 403
-    assert "another device" in second.json()["detail"].lower()
+    assert second.status_code == 200
 
     validate = await client.post(
         "/api/v1/validate",
         json={"key": access_key, "device_id": "other-device"},
     )
     assert validate.status_code == 200
-    assert validate.json()["status"] == "device_mismatch"
+    assert validate.json()["status"] == "valid"
+
+    # Unbound device id still mismatches until it binds.
+    validate_unknown = await client.post(
+        "/api/v1/validate",
+        json={"key": access_key, "device_id": "never-bound"},
+    )
+    assert validate_unknown.json()["status"] == "device_mismatch"
 
     config = await client.get(
         "/api/v1/vpn/config",
         params={"access_key": access_key, "device_id": "other-device"},
     )
-    assert config.status_code == 403
+    assert config.status_code == 409
 
 
 @pytest.mark.asyncio

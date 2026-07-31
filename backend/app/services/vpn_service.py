@@ -2,16 +2,16 @@ import ipaddress
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.models.access_key import AccessKey
+from app.models.device import Device
+from app.models.vpn_session import VpnSession
 
 
 async def allocate_ip(session: AsyncSession) -> str:
-    query = select(AccessKey.vpn_ip).where(AccessKey.vpn_ip.is_not(None))
-
-    result = await session.execute(query)
-
+    result = await session.execute(select(VpnSession.vpn_ip))
     used_ips = set(result.scalars().all())
 
     network = ipaddress.ip_network("10.8.0.0/24")
@@ -28,28 +28,16 @@ async def allocate_ip(session: AsyncSession) -> str:
     raise RuntimeError("Свободные VPN-IP закончились")
 
 
-async def assign_vpn_to_access_key(
-    session: AsyncSession,
-    access_key: AccessKey,
-    public_key: str,
-    vpn_ip: str,
-) -> AccessKey:
-    access_key.vpn_public_key = public_key
-    access_key.vpn_ip = vpn_ip
-
-    await session.commit()
-    await session.refresh(access_key)
-
-    return access_key
-
-
 async def get_vpn_config(
     session: AsyncSession,
     access_key: str,
     device_id: str,
 ) -> str | dict:
-    query = select(AccessKey).where(AccessKey.key == access_key)
-    result = await session.execute(query)
+    result = await session.execute(
+        select(AccessKey)
+        .where(AccessKey.key == access_key)
+        .options(selectinload(AccessKey.devices).selectinload(Device.sessions))
+    )
     key_from_db = result.scalar_one_or_none()
 
     if key_from_db is None:
@@ -61,10 +49,15 @@ async def get_vpn_config(
     if key_from_db.status != "activated":
         return "not_activated"
 
-    if key_from_db.device_id != device_id:
+    device = next(
+        (d for d in key_from_db.devices if d.device_id == device_id),
+        None,
+    )
+    if device is None:
         return "device_mismatch"
 
-    if key_from_db.vpn_ip is None:
+    live = device.sessions[0] if device.sessions else None
+    if live is None:
         return "vpn_not_provisioned"
 
     return {
@@ -93,6 +86,6 @@ async def get_vpn_config(
             },
         },
         "client": {
-            "vpn_ip": key_from_db.vpn_ip,
+            "vpn_ip": live.vpn_ip,
         },
     }

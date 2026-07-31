@@ -1,0 +1,59 @@
+---
+description: Multi-device DB schema (access_keys → devices → vpn_sessions)
+alwaysApply: true
+---
+
+# Multi-device database schema
+
+Source of truth UI: canvas `multi-device-db-schema.canvas.tsx`  
+Related behavior: `.cursor/rules/vpn-sessions-live-only.mdc`
+
+Do **not** put `vpn_ip` / `device_id` / `vpn_public_key` back on `access_keys`.  
+Do **not** put `vpn_ip` on `devices`.  
+Do **not** add soft-close fields to `vpn_sessions` (`active`, `ended_at`, history).
+
+## Tables
+
+```text
+access_keys
+  id
+  key
+  status          # created | activated | revoked
+
+devices           # bind only; 1 key → N devices
+  id
+  access_key_id   # FK → access_keys.id
+  device_id       # client vault id
+  platform        # windows | android | …
+  vpn_public_key
+
+vpn_sessions      # live online slots only
+  id
+  access_key_id   # FK → access_keys.id
+  device_id       # FK → devices.id (PK устройства, не client string)
+  vpn_ip
+  started_at      # set on connect (now); gone when row DELETE’d
+```
+
+Relations: `access_keys` 1→N `devices`; device 0..1 live `vpn_sessions` row.
+
+## Lifecycle
+
+| Action | DB |
+|---|---|
+| create key | INSERT `access_keys` (`created`) |
+| bind | INSERT `devices`; key → `activated` if first device |
+| connect | if `COUNT(vpn_sessions for key) < MAX_ACTIVE_SESSIONS` → INSERT session + `vpn_ip` + `started_at` + peer |
+| disconnect / revoke cleanup | DELETE `vpn_sessions` row(s) + remove peer(s) |
+| unbind | DELETE device (cascades session if any) |
+
+Limit: `MAX_ACTIVE_SESSIONS = 2` (see `backend/app/core/limits.py`). Count **sessions**, not devices.
+
+`started_at`: wall-clock start of the live slot (UI timer / diagnostics). Not session history.
+
+## Out of scope until asked
+
+- remote disconnect
+- closed-session history
+- sticky `vpn_ip` across reconnects (optional later)
+- `expires_at` / paid subscription columns on keys

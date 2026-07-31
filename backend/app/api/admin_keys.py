@@ -90,7 +90,6 @@ async def get_keys(
             "id": key.id,
             "key": key.key,
             "status": key.status,
-            "device_id": key.device_id,
         }
         for key in keys
     ]
@@ -115,5 +114,4 @@ async def get_key(
         "id": key_from_db.id,
         "key": key_from_db.key,
         "status": key_from_db.status,
-        "device_id": key_from_db.device_id,
     }

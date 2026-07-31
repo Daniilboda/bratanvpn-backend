@@ -1,0 +1,33 @@
+---
+description: vpn_sessions stores only live VPN slots; limit via COUNT
+alwaysApply: true
+---
+
+# VpnSession rows = only active slots
+
+Decision (2026-07-31):
+
+- Table `vpn_sessions` holds **only currently connected** sessions.
+- On **disconnect** / revoke cleanup: **DELETE** the session row (do not keep `active=false`).
+- `vpn_ip` exists only while the row exists.
+- Do not store closed-session history in `vpn_sessions` for MVP.
+- `devices` has **no** `vpn_ip` column.
+- Session limit: `MAX_ACTIVE_SESSIONS = 2` (raise to 3 later).
+- Remote disconnect is out of scope until explicitly requested.
+
+## How connect limit is checked
+
+Before INSERT session / allocate `vpn_ip` / add peer:
+
+```sql
+SELECT COUNT(*) FROM vpn_sessions WHERE access_key_id = :access_key_id;
+```
+
+- If `COUNT >= MAX_ACTIVE_SESSIONS` → reject (`ACTIVE_SESSION_LIMIT`).
+- Else → allow connect for that device.
+
+Do **not** count rows in `devices` (bind ≠ online).  
+Do **not** use soft `active=false` filters — table has live rows only.  
+Do **not** use legacy `access_keys.vpn_ip` for the multi-device limit.
+
+When implementing connect/disconnect services, follow delete-on-end — not soft-close.
