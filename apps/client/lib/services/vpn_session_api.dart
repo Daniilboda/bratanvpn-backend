@@ -40,8 +40,10 @@ class VpnSessionApi {
             }),
           )
           .timeout(const Duration(seconds: 30));
-    } on Exception {
-      throw VpnSessionException('Проверьте подключение к интернету.');
+    } on Exception catch (error) {
+      throw VpnSessionException(
+        'Нет связи с API ($baseUrl): ${error.runtimeType}',
+      );
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
@@ -78,8 +80,10 @@ class VpnSessionApi {
             }),
           )
           .timeout(const Duration(seconds: 30));
-    } on Exception {
-      throw VpnSessionException('Проверьте подключение к интернету.');
+    } on Exception catch (error) {
+      throw VpnSessionException(
+        'Нет связи с API ($baseUrl): ${error.runtimeType}',
+      );
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {

@@ -46,8 +46,10 @@ class ActivationApi {
             }),
           )
           .timeout(const Duration(seconds: 30));
-    } on Exception {
-      throw ActivationException('Проверьте подключение к интернету.');
+    } on Exception catch (error) {
+      throw ActivationException(
+        'Нет связи с API ($baseUrl): ${error.runtimeType}',
+      );
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {

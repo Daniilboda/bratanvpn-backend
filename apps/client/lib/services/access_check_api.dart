@@ -48,8 +48,11 @@ class AccessCheckApi {
             }),
           )
           .timeout(const Duration(seconds: 30));
-    } on Exception {
-      throw AccessCheckException('Проверьте подключение к интернету.');
+    } on Exception catch (error) {
+      // Not always "no internet" — wrong baseUrl / refused / TLS look the same here.
+      throw AccessCheckException(
+        'Нет связи с API ($baseUrl): ${error.runtimeType}',
+      );
     }
 
     if (response.statusCode < 200 || response.statusCode >= 300) {

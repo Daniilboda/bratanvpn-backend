@@ -9,6 +9,8 @@ import 'package:client/platform/desktop_shell.dart';
 import 'package:client/services/access_check_api.dart';
 import 'package:client/services/activation_api.dart';
 import 'package:client/services/amnezia_config_builder.dart';
+import 'package:client/services/api_config.dart';
+import 'package:client/services/diag_log.dart';
 import 'package:client/services/secure_vault.dart';
 import 'package:client/services/vpn_config_api.dart';
 import 'package:client/services/vpn_session.dart';
@@ -19,6 +21,10 @@ import 'package:client/shared/widgets/connecting_light_overlay.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // New file per app launch (= one manual check session). Older logs kept.
+  await DiagLog.instance.startCheck(reason: 'app_start');
+  await DiagLog.instance.info('api_base_url', {'url': apiBaseUrl});
 
   DesktopShell? desktopShell;
   if (!kIsWeb && Platform.isWindows) {
@@ -147,6 +153,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed && _keyActivated) {
       unawaited(_pollAccess());
     }
+    // flutter run `q` — flush diag log. Do not use `hidden` (close-to-tray).
+    if (state == AppLifecycleState.detached) {
+      unawaited(DiagLog.instance.endCheck(reason: 'app_detached'));
+    }
   }
 
   Future<void> _onBeforeQuit() async {
@@ -155,6 +165,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     } on Object {
       // Best-effort stop on exit.
     }
+    await DiagLog.instance.endCheck(reason: 'tray_quit');
     if (!mounted) {
       return;
     }
@@ -170,6 +181,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _restoreActivation() async {
     final activated = await widget.secureVault.isActivated();
+    final logPath = DiagLog.instance.currentPath;
 
     if (!mounted) {
       return;
@@ -179,6 +191,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _keyActivated = activated;
       _ready = true;
     });
+
+    if (logPath != null) {
+      await DiagLog.instance.info('ui_ready', {
+        'activated': activated,
+      });
+      // Brief hint so the check-B log path is visible without hunting.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          return;
+        }
+        _showHomeMessage('Лог проверки: $logPath');
+      });
+    }
 
     if (activated) {
       final ok = await _checkAccess();
@@ -233,6 +258,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   }
 
   Future<void> _applyTunnelDropped() async {
+    await DiagLog.instance.warn('tunnel_dropped');
     _stopTunnelHealthPolling();
     try {
       await widget.vpnSession.disconnect();
@@ -260,9 +286,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   Future<bool> _checkAccess({bool showBlockedAlert = true}) async {
     final accessKey = await widget.secureVault.readAccessKey();
     final deviceId = await widget.secureVault.getOrCreateDeviceId();
+    final shortId = DiagLog.shortDeviceId(deviceId);
 
     if (accessKey == null || accessKey.isEmpty) {
       if (_keyActivated) {
+        await DiagLog.instance.warn('validate_no_access_key', {
+          'device_id': shortId,
+        });
         await _applyAccessBlocked(
           message: 'Доступ заблокирован.',
           showAlert: showBlockedAlert,
@@ -278,15 +308,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       );
 
       if (status == AccessCheckStatus.valid) {
+        await DiagLog.instance.info('validate_ok', {'device_id': shortId});
         return true;
       }
 
+      await DiagLog.instance.warn('validate_blocked', {
+        'device_id': shortId,
+        'status': status.name,
+      });
       await _applyAccessBlocked(
         message: _messageForAccessStatus(status),
         showAlert: showBlockedAlert,
       );
       return false;
-    } on AccessCheckException {
+    } on AccessCheckException catch (error) {
+      await DiagLog.instance.warn('validate_api_error', {
+        'device_id': shortId,
+        'msg': error.userMessage,
+      });
       // Network / API errors: keep session; do not kick the user offline.
       return false;
     }
@@ -310,6 +349,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     String message = 'Доступ заблокирован.',
     bool showAlert = true,
   }) async {
+    await DiagLog.instance.warn('access_blocked', {'msg': message});
     // Cancel any in-flight connect / pulse so the power button unsticks.
     _connectEpoch++;
     try {
@@ -349,6 +389,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _stopAccessPolling();
     _stopTunnelHealthPolling();
     _timer?.cancel();
+    // Best-effort: flutter `q` often tears down via dispose.
+    unawaited(DiagLog.instance.endCheck(reason: 'dispose'));
     super.dispose();
   }
 
@@ -359,13 +401,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     if (_connected) {
       setState(() => _checkingAccess = true);
+      await DiagLog.instance.info('ui_disconnect_tap');
       try {
         await widget.vpnSession.disconnect();
         if (!mounted) {
           return;
         }
         _setConnected(false);
-      } on VpnTunnelException {
+      } on VpnTunnelException catch (error) {
+        await DiagLog.instance.error('ui_disconnect_fail', {
+          'msg': error.userMessage,
+        });
         // Tunnel stop failed: UI already reflects disconnect attempt.
       } finally {
         if (mounted) {
@@ -387,6 +433,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     }
 
     setState(() => _checkingAccess = true);
+    await DiagLog.instance.info('ui_connect_tap');
     final allowed = await _checkAccess();
     if (!mounted) {
       return;
@@ -433,22 +480,43 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       // Spark flares into the lit button.
       setState(() => _connectLightHomeIn = true);
     } on AmneziaConfigException catch (error) {
+      await DiagLog.instance.error('ui_connect_fail', {
+        'kind': 'config_build',
+        'msg': error.userMessage,
+      });
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
     } on VpnSessionException catch (error) {
+      await DiagLog.instance.error('ui_connect_fail', {
+        'kind': 'session',
+        'http': error.statusCode,
+        'msg': error.userMessage,
+      });
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
     } on VpnConfigException catch (error) {
+      await DiagLog.instance.error('ui_connect_fail', {
+        'kind': 'config_api',
+        'msg': error.userMessage,
+      });
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
     } on VpnTunnelException catch (error) {
+      await DiagLog.instance.error('ui_connect_fail', {
+        'kind': 'tunnel',
+        'msg': error.userMessage,
+      });
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight(error.userMessage);
       }
-    } on Exception {
+    } on Exception catch (error) {
+      await DiagLog.instance.error('ui_connect_fail', {
+        'kind': 'unknown',
+        'error': error.runtimeType,
+      });
       if (mounted && epoch == _connectEpoch) {
         _abortConnectLight('Не удалось запустить VPN.');
       }
@@ -850,6 +918,8 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
     try {
       final deviceId = await widget.secureVault.getOrCreateDeviceId();
       final keyPair = await widget.secureVault.getOrCreateVpnKeyPair();
+      final shortId = DiagLog.shortDeviceId(deviceId);
+      await DiagLog.instance.info('bind_begin', {'device_id': shortId});
       final result = await widget.activationApi.activate(
         accessKey: accessKey,
         deviceId: deviceId,
@@ -857,12 +927,16 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
       );
       await widget.secureVault.saveAccessKey(accessKey);
       await widget.secureVault.saveActivationSuccess();
+      await DiagLog.instance.info('bind_ok', {
+        'device_id': shortId,
+      });
 
       if (!mounted) {
         return;
       }
       Navigator.of(context).pop(result);
     } on ActivationException catch (error) {
+      await DiagLog.instance.error('bind_fail', {'msg': error.userMessage});
       if (!mounted) {
         return;
       }
@@ -870,13 +944,19 @@ class _AccessKeyDialogState extends State<_AccessKeyDialog> {
         _loading = false;
         _error = error.userMessage;
       });
-    } on Exception {
+    } on Exception catch (error) {
+      await DiagLog.instance.error('bind_fail', {
+        'error': error.runtimeType,
+        'msg': error.toString(),
+      });
       if (!mounted) {
         return;
       }
       setState(() {
         _loading = false;
-        _error = 'Проверьте подключение к интернету.';
+        _error = error is ActivationException
+            ? error.userMessage
+            : 'Нет связи с API. Подробности в логе.';
       });
     }
   }

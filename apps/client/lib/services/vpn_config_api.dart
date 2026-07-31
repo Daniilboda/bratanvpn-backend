@@ -35,8 +35,10 @@ class VpnConfigApi {
     late final http.Response response;
     try {
       response = await _client.get(uri).timeout(const Duration(seconds: 30));
-    } on Exception {
-      throw VpnConfigException('Проверьте подключение к интернету.');
+    } on Exception catch (error) {
+      throw VpnConfigException(
+        'Нет связи с API ($baseUrl): ${error.runtimeType}',
+      );
     }
 
     if (response.statusCode >= 200 && response.statusCode < 300) {
