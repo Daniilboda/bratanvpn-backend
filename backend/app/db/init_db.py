@@ -1,8 +1,10 @@
 from app.db.session import engine
 from app.db.base import Base
 
-# Импортируем модели, чтобы SQLAlchemy "узнал" о них
+# Register all models on Base.metadata
 from app.models.access_key import AccessKey  # noqa: F401
+from app.models.device import Device  # noqa: F401
+from app.models.vpn_session import VpnSession  # noqa: F401
 
 
 async def init_db():

@@ -29,6 +29,8 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 from app.db.base import Base
 from app.models.access_key import AccessKey  # noqa: F401
+from app.models.device import Device  # noqa: F401
+from app.models.vpn_session import VpnSession  # noqa: F401
 
 
 target_metadata = Base.metadata
