@@ -18,6 +18,7 @@ import 'package:client/services/vpn_session_api.dart';
 import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/vpn_tunnel_factory.dart';
 import 'package:client/shared/widgets/connecting_light_overlay.dart';
+import 'package:client/shared/widgets/drakar_medallion_button.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -687,11 +688,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final buttonFill = _connected ? Colors.white : _background;
-    final iconColor = _connected ? Colors.black : Colors.white;
     final label = _connected ? 'Подключено' : 'Подключиться';
-    // Hide the glyph while the spark blooms — white-on-white reads as noise.
-    final iconOpacity = _connectLightActive ? 0.0 : 1.0;
 
     final isDesktopShell = widget.desktopShell != null;
 
@@ -756,63 +753,17 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     ),
                   ),
                   const SizedBox(height: 36),
-                  MouseRegion(
-                    cursor: SystemMouseCursors.click,
-                    child: GestureDetector(
+                  // Extra padding so sunburst rays are not clipped by neighbors.
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    child: DrakarMedallionButton(
+                      buttonKey: _powerButtonKey,
+                      connected: _connected,
                       onTap: _onPowerPressed,
-                      child: AnimatedContainer(
-                        key: _powerButtonKey,
-                        duration: const Duration(milliseconds: 250),
-                        width: 148,
-                        height: 148,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          shape: BoxShape.circle,
-                          color: buttonFill,
-                          border: _connected
-                              ? null
-                              : Border.all(
-                                  color: Colors.white.withValues(alpha: 0.35),
-                                  width: 1.5,
-                                ),
-                          boxShadow: _connected
-                              ? [
-                                  BoxShadow(
-                                    color: Colors.white.withValues(alpha: 0.75),
-                                    blurRadius: 28,
-                                    spreadRadius: 6,
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.white.withValues(alpha: 0.45),
-                                    blurRadius: 48,
-                                    spreadRadius: 14,
-                                  ),
-                                  BoxShadow(
-                                    color: Colors.white.withValues(alpha: 0.22),
-                                    blurRadius: 72,
-                                    spreadRadius: 22,
-                                  ),
-                                ]
-                              : null,
-                        ),
-                        child: AnimatedOpacity(
-                          opacity: iconOpacity,
-                          duration: Duration(
-                            milliseconds: _connectLightActive ? 140 : 260,
-                          ),
-                          curve: _connectLightActive
-                              ? Curves.easeIn
-                              : Curves.easeOutCubic,
-                          child: Icon(
-                            Icons.power_settings_new,
-                            size: 56,
-                            color: iconColor,
-                          ),
-                        ),
-                      ),
+                      diameter: 168,
                     ),
                   ),
-                  const SizedBox(height: 28),
+                  const SizedBox(height: 8),
                   Text(
                     label,
                     textAlign: TextAlign.center,
