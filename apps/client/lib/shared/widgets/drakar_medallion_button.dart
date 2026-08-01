@@ -130,7 +130,8 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                       height: raysSize,
                       child: IgnorePointer(
                         child: Opacity(
-                          opacity: connected ? (0.72 + 0.28 * breath) : 0.0,
+                          // Breath: visibly dimmer ↔ brighter (was 0.72–1.0, too flat).
+                          opacity: connected ? (0.45 + 0.55 * breath) : 0.0,
                           child: Transform.scale(
                             scale: connected ? (1.0 + 0.04 * breath) : 1.0,
                             child: Image.asset(
