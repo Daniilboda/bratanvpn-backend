@@ -20,6 +20,9 @@ import 'package:client/services/vpn_tunnel_factory.dart';
 import 'package:client/shared/widgets/connecting_light_overlay.dart';
 import 'package:client/shared/widgets/drakar_medallion_button.dart';
 
+/// Matches [assets/drakar/bg_texture.png] mean charcoal (window/scaffold fallback).
+const Color kDrakarBackground = Color(0xFF060606);
+
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -67,11 +70,11 @@ class MyApp extends StatelessWidget {
       debugShowCheckedModeBanner: false,
       theme: ThemeData(
         brightness: Brightness.dark,
-        scaffoldBackgroundColor: Colors.black,
+        scaffoldBackgroundColor: kDrakarBackground,
         colorScheme: const ColorScheme.dark(
           primary: Colors.white,
-          onPrimary: Colors.black,
-          surface: Colors.black,
+          onPrimary: kDrakarBackground,
+          surface: kDrakarBackground,
           onSurface: Colors.white,
         ),
       ),
@@ -115,7 +118,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
-  static const Color _background = Colors.black;
+  static const Color _background = kDrakarBackground;
   static const String _bgTextureAsset = 'assets/drakar/bg_texture.png';
   static const Duration _accessCheckPeriod = Duration(minutes: 15);
   static const Duration _tunnelHealthPeriod = Duration(seconds: 5);

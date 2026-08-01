@@ -13,6 +13,9 @@ class DesktopShell with WindowListener, TrayListener {
 
   static const String _trayIconAsset = 'assets/tray_icon.ico';
 
+  /// Matches [apps/client/assets/drakar/bg_texture.png] mean charcoal.
+  static const Color windowBackground = Color(0xFF060606);
+
   /// Called before process exit (tray «Выход»). Should stop VPN.
   Future<void> Function()? beforeQuit;
 
@@ -30,7 +33,7 @@ class DesktopShell with WindowListener, TrayListener {
       size: Size(380, 720),
       minimumSize: Size(320, 560),
       center: true,
-      backgroundColor: Colors.black,
+      backgroundColor: windowBackground,
       skipTaskbar: false,
       titleBarStyle: TitleBarStyle.hidden,
       title: 'BratanVPN',
@@ -39,6 +42,8 @@ class DesktopShell with WindowListener, TrayListener {
     await windowManager.waitUntilReadyToShow(options, () async {
       await windowManager.setPreventClose(true);
       await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+      await windowManager.setResizable(true);
+      await windowManager.setBackgroundColor(windowBackground);
       // Taskbar / Alt-Tab icon (asset path relative to Flutter assets).
       await windowManager.setIcon(_trayIconAsset);
       await windowManager.show();

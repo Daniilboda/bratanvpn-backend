@@ -15,6 +15,12 @@ namespace {
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+#ifndef DWMWA_BORDER_COLOR
+#define DWMWA_BORDER_COLOR 34
+#endif
+#ifndef DWMWA_COLOR_NONE
+#define DWMWA_COLOR_NONE 0xFFFFFFFE
+#endif
 
 constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
 
@@ -97,7 +103,9 @@ const wchar_t* WindowClassRegistrar::GetWindowClass() {
     window_class.hInstance = GetModuleHandle(nullptr);
     window_class.hIcon =
         LoadIcon(window_class.hInstance, MAKEINTRESOURCE(IDI_APP_ICON));
-    window_class.hbrBackground = 0;
+    // Match Drakar charcoal texture (~#060606) so gaps aren't pure black.
+    window_class.hbrBackground =
+        CreateSolidBrush(RGB(0x06, 0x06, 0x06));
     window_class.lpszMenuName = nullptr;
     window_class.lpfnWndProc = Win32Window::WndProc;
     RegisterClass(&window_class);
@@ -285,4 +293,10 @@ void Win32Window::UpdateTheme(HWND const window) {
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+
+  // Match remaining DWM border to Drakar charcoal so no light separator shows.
+  // (Win11 also accepts DWMWA_COLOR_NONE; charcoal is safer on Win10.)
+  COLORREF border_match = RGB(0x06, 0x06, 0x06);
+  DwmSetWindowAttribute(window, DWMWA_BORDER_COLOR, &border_match,
+                        sizeof(border_match));
 }

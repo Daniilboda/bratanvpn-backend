@@ -207,9 +207,9 @@ class _TexturedGoldRimPainter extends CustomPainter {
 
   // Цвета: 0xFFRRGGBB. Темнее рефа, текстура та же.
   static const Color _deep = Color(0xFF3A1E01); // хвост снаружи
-  static const Color _mid = Color(0xFF7A4E18); // дым обода
-  static const Color _bright = Color(0xFF9A6410); // плотнее у края
-  static const Color _hot = Color(0xFF8A5814); // уплотнения дыма
+  static const Color _mid = Color(0xFF8A5818); // дым обода (чуть насыщеннее)
+  static const Color _bright = Color(0xFFB07412); // плотнее у края
+  static const Color _hot = Color(0xFF9A6414); // уплотнения дыма
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -242,9 +242,9 @@ class _TexturedGoldRimPainter extends CustomPainter {
         [
           _mid.withValues(alpha: 0.0),
           _mid.withValues(alpha: 0.0),
-          _mid.withValues(alpha: 0.08 * i * veilBreath),
-          _deep.withValues(alpha: 0.035 * i * veilBreath),
-          _deep.withValues(alpha: 0.018 * i * veilBreath),
+          _mid.withValues(alpha: 0.10 * i * veilBreath),
+          _deep.withValues(alpha: 0.042 * i * veilBreath),
+          _deep.withValues(alpha: 0.022 * i * veilBreath),
           _deep.withValues(alpha: 0.0),
         ],
         [
@@ -268,8 +268,8 @@ class _TexturedGoldRimPainter extends CustomPainter {
         [
           _mid.withValues(alpha: 0.0),
           _bright.withValues(alpha: 0.0),
-          _bright.withValues(alpha: 0.28 * i),
-          _mid.withValues(alpha: 0.20 * i),
+          _bright.withValues(alpha: 0.34 * i),
+          _mid.withValues(alpha: 0.24 * i),
           _deep.withValues(alpha: 0.0),
         ],
         [
@@ -286,7 +286,7 @@ class _TexturedGoldRimPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = coreRef * 0.04
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
-      ..color = _bright.withValues(alpha: 0.22 * i);
+      ..color = _bright.withValues(alpha: 0.26 * i);
     canvas.drawCircle(center, rim + 1.2, edge);
 
     final puff = Paint()..style = PaintingStyle.fill;
