@@ -68,7 +68,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   Widget build(BuildContext context) {
     final raysSize = widget.diameter * 2.35;
     final hitSize = widget.diameter;
-    // Glow canvas = medallion size; rim is drawn at the real content edge.
+    final glowSize = hitSize * 1.65; // холст свечения (чтобы дым не обрезался)
     final rimRadius = hitSize / 2 * DrakarMedallionButton.contentRadiusFactor;
 
     return MouseRegion(
@@ -109,26 +109,30 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                     ),
                   ),
                 ),
-                // Rim glow — same box as medallion; paints only outside the disc.
-                Positioned.fill(
+                Positioned(
+                  left: (hitSize - glowSize) / 2,
+                  top: (hitSize - glowSize) / 2,
+                  width: glowSize,
+                  height: glowSize,
                   child: IgnorePointer(
                     child: AnimatedBuilder(
                       animation: _pulse,
                       builder: (context, _) {
                         final pulse = widget.connected ? _pulse.value : 0.0;
                         return AnimatedOpacity(
-                          opacity: widget.connected ? 1.0 : 0.38,
+                          opacity: widget.connected ? 1.0 : 0.0,
                           duration: const Duration(milliseconds: 320),
                           curve: Curves.easeOutCubic,
                           child: CustomPaint(
+                            size: Size.square(glowSize),
                             painter: _TexturedGoldRimPainter(
                               rimRadius: rimRadius,
                               intensity: widget.connected
-                                  ? 0.85 + 0.15 * pulse
-                                  : 0.5,
+                                  ? 0.9 + 0.1 * pulse
+                                  : 0.0,
                               bloomExtra: widget.connected
-                                  ? 1.0 + 0.12 * pulse
-                                  : 0.7,
+                                  ? 1.0 + 0.08 * pulse
+                                  : 0.0,
                             ),
                           ),
                         );
@@ -164,19 +168,20 @@ class _TexturedGoldRimPainter extends CustomPainter {
   final double intensity;
   final double bloomExtra;
 
-  static const Color _deep = Color(0xFF6B4A12);
-  static const Color _mid = Color(0xFFC9A227);
-  static const Color _bright = Color(0xFFF0D878);
-  static const Color _hot = Color(0xFFFFF3C4);
+  // Цвета: 0xFFRRGGBB. Темнее рефа, текстура та же.
+  static const Color _deep = Color(0xFF3A1E01); // хвост снаружи
+  static const Color _mid = Color(0xFF7A4E18); // дым обода
+  static const Color _bright = Color(0xFF9A6410); // плотнее у края
+  static const Color _hot = Color(0xFF8A5814); // уплотнения дыма
 
   @override
   void paint(Canvas canvas, Size size) {
+    if (intensity <= 0) return;
+
     final center = Offset(size.width / 2, size.height / 2);
     final i = intensity.clamp(0.0, 1.0);
     final rim = rimRadius;
 
-    // Clip: everything inside the medallion disc is discarded —
-    // glow lives only outside the stone edge.
     canvas.save();
     final outside = Path()
       ..fillType = PathFillType.evenOdd
@@ -184,9 +189,9 @@ class _TexturedGoldRimPainter extends CustomPainter {
       ..addOval(Rect.fromCircle(center: center, radius: rim - 0.5));
     canvas.clipPath(outside);
 
-    final outerReach = rim + size.shortestSide * 0.09 * bloomExtra;
+    final outerReach = rim + size.shortestSide * 0.16 * bloomExtra; // ширина дыма
 
-    // Soft bloom radiating from the rim outward.
+    // Базовый ореол.
     final bloom = Paint()
       ..shader = ui.Gradient.radial(
         center,
@@ -194,80 +199,89 @@ class _TexturedGoldRimPainter extends CustomPainter {
         [
           _mid.withValues(alpha: 0.0),
           _bright.withValues(alpha: 0.0),
-          _bright.withValues(alpha: 0.55 * i),
-          _mid.withValues(alpha: 0.28 * i),
+          _bright.withValues(alpha: 0.28 * i), // сила у края
+          _mid.withValues(alpha: 0.20 * i),
           _deep.withValues(alpha: 0.0),
         ],
         [
           0.0,
           (rim / outerReach).clamp(0.0, 1.0),
           ((rim + 2) / outerReach).clamp(0.0, 1.0),
-          ((rim + size.shortestSide * 0.04) / outerReach).clamp(0.0, 1.0),
+          ((rim + size.shortestSide * 0.07) / outerReach).clamp(0.0, 1.0),
           1.0,
         ],
       );
     canvas.drawCircle(center, outerReach, bloom);
 
-    // Tight metallic rim line sitting on the edge.
+    // Мягкая кромка.
     final edge = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = 2.2
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 1.8)
-      ..color = _hot.withValues(alpha: 0.7 * i);
-    canvas.drawCircle(center, rim + 0.8, edge);
+      ..strokeWidth = size.shortestSide * 0.04
+      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
+      ..color = _bright.withValues(alpha: 0.22 * i); // сила кромки
+    canvas.drawCircle(center, rim + 1.2, edge);
 
-    final edgeSoft = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = size.shortestSide * 0.035
-      ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5)
-      ..color = _mid.withValues(alpha: 0.45 * i);
-    canvas.drawCircle(center, rim + 1.5, edgeSoft);
-
-    // Hammered-gold flecks along the rim, outward only.
-    final fleckPaint = Paint()
-      ..style = PaintingStyle.stroke
-      ..strokeCap = StrokeCap.round;
-
-    const flecks = 88;
-    for (var n = 0; n < flecks; n++) {
-      final angle = (n / flecks) * math.pi * 2;
+    // Дымные «облачка» по ободу — основная текстура.
+    final puff = Paint()..style = PaintingStyle.fill;
+    const puffs = 120; // густота дыма
+    for (var n = 0; n < puffs; n++) {
       final wobble = math.sin(n * 12.9898) * 43758.5453;
       final frac = wobble - wobble.floorToDouble();
-      final r = rim + 1.0 + frac * 3.5;
-      final len = 0.03 + frac * 0.08;
-      final alpha = (0.2 + frac * 0.5) * i;
-      final warm = frac > 0.6;
+      final wobble2 = math.sin(n * 78.233) * 12345.6789;
+      final frac2 = wobble2 - wobble2.floorToDouble();
 
-      fleckPaint
-        ..strokeWidth = 1.0 + frac * 2.0
-        ..color = (warm ? _hot : _mid).withValues(alpha: alpha)
-        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 0.5 + frac * 1.4);
+      final angle = (n / puffs) * math.pi * 2 + frac * 0.08;
+      final outward = 2.0 + frac * size.shortestSide * 0.11; // как далеко от обода
+      final p = Offset(
+        center.dx + math.cos(angle) * (rim + outward),
+        center.dy + math.sin(angle) * (rim + outward),
+      );
+      final radius = 2.5 + frac2 * 7.5; // размер облачка
+      final alpha = (0.04 + frac * 0.12) * i; // сила текстуры
+      final col = frac > 0.55 ? _hot : _mid;
 
+      puff
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 2.5 + frac2 * 4.5)
+        ..color = col.withValues(alpha: alpha);
+      canvas.drawCircle(p, radius, puff);
+    }
+
+    // Длинные дымные дуги (неровный слой).
+    final arcPaint = Paint()
+      ..style = PaintingStyle.stroke
+      ..strokeCap = StrokeCap.round;
+    const arcs = 48; // густота дуг
+    for (var n = 0; n < arcs; n++) {
+      final wobble = math.sin(n * 4.1415) * 9973.0;
+      final frac = wobble - wobble.floorToDouble();
+      final angle = (n / arcs) * math.pi * 2;
+      final r = rim + 1.5 + frac * 8.0;
+      final len = 0.08 + frac * 0.18;
+
+      arcPaint
+        ..strokeWidth = 2.0 + frac * 4.0
+        ..color = _mid.withValues(alpha: (0.04 + frac * 0.10) * i)
+        ..maskFilter = MaskFilter.blur(BlurStyle.normal, 3.0 + frac * 4.0);
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: r),
         angle - len / 2,
         len,
         false,
-        fleckPaint,
+        arcPaint,
       );
     }
 
-    // Sparks at the four diamond bosses.
-    final spark = Paint()..style = PaintingStyle.fill;
+    // Чуть плотнее у ромбов 12/3/6/9 (как на рефе).
     for (var k = 0; k < 4; k++) {
       final a = -math.pi / 2 + k * (math.pi / 2);
       final p = Offset(
-        center.dx + math.cos(a) * (rim + 1),
-        center.dy + math.sin(a) * (rim + 1),
+        center.dx + math.cos(a) * (rim + 3),
+        center.dy + math.sin(a) * (rim + 3),
       );
-      spark
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 3)
-        ..color = _hot.withValues(alpha: 0.6 * i);
-      canvas.drawCircle(p, 3.2, spark);
-      spark
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 5)
-        ..color = _bright.withValues(alpha: 0.25 * i);
-      canvas.drawCircle(p, 6.0, spark);
+      puff
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
+        ..color = _bright.withValues(alpha: 0.12 * i); // сила у ромбов
+      canvas.drawCircle(p, 8.0, puff);
     }
 
     canvas.restore();
