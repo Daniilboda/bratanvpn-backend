@@ -90,7 +90,8 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   Widget build(BuildContext context) {
     final raysSize = widget.diameter * 2.35;
     final hitSize = widget.diameter;
-    final glowSize = hitSize * 1.65; // холст свечения (чтобы дым не обрезался)
+    // Glow canvas matches rays so the faint veil can reach ray tips.
+    final glowSize = raysSize;
     final rimRadius = hitSize / 2 * DrakarMedallionButton.contentRadiusFactor;
 
     return MouseRegion(
@@ -218,6 +219,10 @@ class _TexturedGoldRimPainter extends CustomPainter {
     final rim = rimRadius;
     // Quiet secondary amplitude for living smoke (does not flash).
     final smokeBoost = 0.85 + 0.15 * shimmer;
+    // Core metrics stay tied to the medallion, not the full rays canvas.
+    final medalDiameter =
+        2 * rim / DrakarMedallionButton.contentRadiusFactor;
+    final coreRef = medalDiameter * 1.65;
 
     canvas.save();
     final outside = Path()
@@ -226,9 +231,35 @@ class _TexturedGoldRimPainter extends CustomPainter {
       ..addOval(Rect.fromCircle(center: center, radius: rim - 0.5));
     canvas.clipPath(outside);
 
-    final outerReach = rim + size.shortestSide * 0.16 * bloomExtra; // ширина дыма
+    // Faint veil to ray tips — barely visible, does not boost rim brightness.
+    final veilReach = size.shortestSide / 2;
+    final veilBreath = 0.7 + 0.3 * i;
+    final veil = Paint()
+      ..shader = ui.Gradient.radial(
+        center,
+        veilReach,
+        [
+          _mid.withValues(alpha: 0.0),
+          _mid.withValues(alpha: 0.0),
+          _mid.withValues(alpha: 0.08 * i * veilBreath),
+          _deep.withValues(alpha: 0.035 * i * veilBreath),
+          _deep.withValues(alpha: 0.018 * i * veilBreath),
+          _deep.withValues(alpha: 0.0),
+        ],
+        [
+          0.0,
+          (rim / veilReach).clamp(0.0, 1.0),
+          ((rim + coreRef * 0.04) / veilReach).clamp(0.0, 1.0),
+          ((rim + coreRef * 0.22) / veilReach).clamp(0.0, 1.0),
+          0.92,
+          1.0,
+        ],
+      );
+    canvas.drawCircle(center, veilReach, veil);
 
-    // Базовый ореол.
+    // Dense core bloom near the medallion rim only.
+    final outerReach = rim + coreRef * 0.16 * bloomExtra;
+
     final bloom = Paint()
       ..shader = ui.Gradient.radial(
         center,
@@ -236,7 +267,7 @@ class _TexturedGoldRimPainter extends CustomPainter {
         [
           _mid.withValues(alpha: 0.0),
           _bright.withValues(alpha: 0.0),
-          _bright.withValues(alpha: 0.28 * i), // сила у края
+          _bright.withValues(alpha: 0.28 * i),
           _mid.withValues(alpha: 0.20 * i),
           _deep.withValues(alpha: 0.0),
         ],
@@ -244,23 +275,21 @@ class _TexturedGoldRimPainter extends CustomPainter {
           0.0,
           (rim / outerReach).clamp(0.0, 1.0),
           ((rim + 2) / outerReach).clamp(0.0, 1.0),
-          ((rim + size.shortestSide * 0.07) / outerReach).clamp(0.0, 1.0),
+          ((rim + coreRef * 0.07) / outerReach).clamp(0.0, 1.0),
           1.0,
         ],
       );
     canvas.drawCircle(center, outerReach, bloom);
 
-    // Мягкая кромка.
     final edge = Paint()
       ..style = PaintingStyle.stroke
-      ..strokeWidth = size.shortestSide * 0.04
+      ..strokeWidth = coreRef * 0.04
       ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 6)
-      ..color = _bright.withValues(alpha: 0.22 * i); // сила кромки
+      ..color = _bright.withValues(alpha: 0.22 * i);
     canvas.drawCircle(center, rim + 1.2, edge);
 
-    // Дымные «облачка» по ободу — основная текстура.
     final puff = Paint()..style = PaintingStyle.fill;
-    const puffs = 120; // густота дыма
+    const puffs = 120;
     for (var n = 0; n < puffs; n++) {
       final wobble = math.sin(n * 12.9898) * 43758.5453;
       final frac = wobble - wobble.floorToDouble();
@@ -269,13 +298,13 @@ class _TexturedGoldRimPainter extends CustomPainter {
 
       final angle =
           (n / puffs) * math.pi * 2 + frac * 0.08 + texturePhase * 0.15;
-      final outward = 2.0 + frac * size.shortestSide * 0.11; // как далеко от обода
+      final outward = 2.0 + frac * coreRef * 0.11;
       final p = Offset(
         center.dx + math.cos(angle) * (rim + outward),
         center.dy + math.sin(angle) * (rim + outward),
       );
-      final radius = 2.5 + frac2 * 7.5; // размер облачка
-      final alpha = (0.04 + frac * 0.12) * i * smokeBoost; // сила текстуры
+      final radius = 2.5 + frac2 * 7.5;
+      final alpha = (0.04 + frac * 0.12) * i * smokeBoost;
       final col = frac > 0.55 ? _hot : _mid;
 
       puff
@@ -284,11 +313,10 @@ class _TexturedGoldRimPainter extends CustomPainter {
       canvas.drawCircle(p, radius, puff);
     }
 
-    // Длинные дымные дуги (неровный слой).
     final arcPaint = Paint()
       ..style = PaintingStyle.stroke
       ..strokeCap = StrokeCap.round;
-    const arcs = 48; // густота дуг
+    const arcs = 48;
     for (var n = 0; n < arcs; n++) {
       final wobble = math.sin(n * 4.1415) * 9973.0;
       final frac = wobble - wobble.floorToDouble();
@@ -309,7 +337,6 @@ class _TexturedGoldRimPainter extends CustomPainter {
       );
     }
 
-    // Чуть плотнее у ромбов 12/3/6/9 (как на рефе).
     for (var k = 0; k < 4; k++) {
       final a = -math.pi / 2 + k * (math.pi / 2) + texturePhase * 0.02;
       final p = Offset(
@@ -318,7 +345,7 @@ class _TexturedGoldRimPainter extends CustomPainter {
       );
       puff
         ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 8)
-        ..color = _bright.withValues(alpha: 0.12 * i); // сила у ромбов
+        ..color = _bright.withValues(alpha: 0.12 * i);
       canvas.drawCircle(p, 8.0, puff);
     }
 

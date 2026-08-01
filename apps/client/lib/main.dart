@@ -116,6 +116,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const Color _background = Colors.black;
+  static const String _bgTextureAsset = 'assets/drakar/bg_texture.png';
   static const Duration _accessCheckPeriod = Duration(minutes: 15);
   static const Duration _tunnelHealthPeriod = Duration(seconds: 5);
 
@@ -694,10 +695,21 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     return Scaffold(
       backgroundColor: _background,
-      body: SafeArea(
-        child: Stack(
-          key: _homeStackKey,
-          children: [
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(
+            child: Image.asset(
+              _bgTextureAsset,
+              fit: BoxFit.cover,
+              alignment: Alignment.center,
+              filterQuality: FilterQuality.medium,
+            ),
+          ),
+          SafeArea(
+            child: Stack(
+              key: _homeStackKey,
+              children: [
             // Frameless Windows: drag strip under chrome buttons.
             if (isDesktopShell)
               const Positioned(
@@ -825,8 +837,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onAborted: _onConnectLightAborted,
                 ),
               ),
-          ],
-        ),
+              ],
+            ),
+          ),
+        ],
       ),
     );
   }
