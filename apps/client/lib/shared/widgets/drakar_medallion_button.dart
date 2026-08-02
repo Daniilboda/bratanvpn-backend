@@ -40,6 +40,9 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   late final AnimationController _flash;
   late final AnimationController _settle;
   late final AnimationController _extinguish;
+  /// True from disconnect FX start until hard reset — avoids a one-frame black flash
+  /// when `_extinguish.value` is still 0.
+  bool _extinguishingActive = false;
 
   /// Absolute CCW spin angle (radians), continuous across handoff.
   double _spinAngle = 0;
@@ -101,9 +104,11 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     final isLit = widget.connected || widget.connecting;
 
     if (widget.connecting && !oldWidget.connecting && !widget.connected) {
+      _extinguishingActive = false;
       _extinguish.stop();
       _beginConnecting();
     } else if (widget.connected && !oldWidget.connected) {
+      _extinguishingActive = false;
       _extinguish.stop();
       _beginSettleToConnected();
     } else if (!isLit && wasLit) {
@@ -139,6 +144,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   }
 
   void _beginConnecting() {
+    _extinguishingActive = false;
     _settle
       ..stop()
       ..value = 0;
@@ -203,6 +209,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     _breath.stop();
     _shimmer.stop();
     _settle.stop();
+    _extinguishingActive = true;
     _extinguish.forward(from: 0);
   }
 
@@ -231,6 +238,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   }
 
   void _hardResetFx() {
+    _extinguishingActive = false;
     _spin
       ..stop()
       ..value = 0;
@@ -304,8 +312,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
             builder: (context, _) {
               final connected = widget.connected;
               final connecting = widget.connecting && !connected;
-              final extinguishing =
-                  !connected && !connecting && _extinguish.value > 0;
+              final extinguishing = _extinguishingActive;
               final dying = Curves.easeInCubic.transform(_extinguish.value);
               final alive = 1.0 - dying;
               final lit = connecting || connected || extinguishing;
@@ -426,7 +433,9 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                     height: glowSize,
                     child: IgnorePointer(
                       child: Opacity(
-                        opacity: lit && intensity > 0.01 ? 1.0 : 0.0,
+                        opacity: extinguishing
+                            ? alive.clamp(0.0, 1.0)
+                            : (lit && intensity > 0.01 ? 1.0 : 0.0),
                         child: Transform.rotate(
                           angle: spinAngle,
                           child: CustomPaint(
