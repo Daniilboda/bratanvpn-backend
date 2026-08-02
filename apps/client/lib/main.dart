@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 
 import 'package:client/platform/desktop_shell.dart';
@@ -185,6 +186,29 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       _connected = false;
       _session = Duration.zero;
     });
+  }
+
+  /// Android chrome ✕ — stop VPN and leave (Windows uses tray hide instead).
+  Future<void> _exitAndroid() async {
+    await DiagLog.instance.info('ui_android_close_tap');
+    try {
+      await widget.vpnSession.disconnect();
+    } on Object {
+      // Best-effort stop.
+    }
+    if (!mounted) {
+      return;
+    }
+    _stopAccessPolling();
+    _stopTunnelHealthPolling();
+    _timer?.cancel();
+    _timer = null;
+    setState(() {
+      _connecting = false;
+      _connected = false;
+      _session = Duration.zero;
+    });
+    await SystemNavigator.pop();
   }
 
   Future<void> _restoreActivation() async {
@@ -652,7 +676,14 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
     final isDesktopShell = widget.desktopShell != null;
 
-    return Scaffold(
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: const SystemUiOverlayStyle(
+        statusBarColor: Colors.transparent,
+        statusBarIconBrightness: Brightness.light,
+        systemNavigationBarColor: Color(0xFF060606),
+        systemNavigationBarIconBrightness: Brightness.light,
+      ),
+      child: Scaffold(
       backgroundColor: _background,
       body: Stack(
         fit: StackFit.expand,
@@ -662,7 +693,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               _bgTextureAsset,
               fit: BoxFit.cover,
               alignment: Alignment.center,
-              filterQuality: FilterQuality.medium,
+              filterQuality: FilterQuality.high,
+              gaplessPlayback: true,
             ),
           ),
           SafeArea(
@@ -678,8 +710,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 height: 64,
                 child: DragToMoveArea(child: SizedBox.expand()),
               ),
+            // Android chrome sits a touch lower under the status bar; Windows unchanged.
             Positioned(
-              top: 20,
+              top: isDesktopShell ? 20 : 24,
               left: 8,
               child: IconButton(
                 tooltip: '',
@@ -694,26 +727,31 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ),
               ),
             ),
-            if (isDesktopShell)
-              Positioned(
-                top: 20,
-                right: 8,
-                child: IconButton(
-                  tooltip: '',
-                  onPressed: () {
+            Positioned(
+              top: isDesktopShell ? 20 : 24,
+              right: 8,
+              child: IconButton(
+                tooltip: '',
+                onPressed: () {
+                  if (isDesktopShell) {
                     unawaited(widget.desktopShell!.hideToTray());
-                  },
-                  icon: Image.asset(
-                    'assets/drakar/close.png',
-                    width: 22,
-                    height: 22,
-                    filterQuality: FilterQuality.high,
-                  ),
+                  } else {
+                    // Android: stop tunnel (best-effort) and leave the app.
+                    unawaited(_exitAndroid());
+                  }
+                },
+                icon: Image.asset(
+                  'assets/drakar/close.png',
+                  width: 22,
+                  height: 22,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
-            // Wordmark centered between menu and close (same band as chrome icons).
+            ),
+            // Wordmark centered between menu and close.
+            // Android: a bit lower so it sits with the chrome icons under the status bar.
             Positioned(
-              top: 16,
+              top: isDesktopShell ? 16 : 24,
               left: 52,
               right: 52,
               height: 48,
@@ -769,13 +807,15 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Positioned(
               left: 0,
               right: 0,
-              bottom: 28,
+              // Android: lift above home indicator / nav; Windows stays compact.
+              bottom: isDesktopShell ? 28 : 48,
               child: DrakarServerCard(connected: _connected),
             ),
               ],
             ),
           ),
         ],
+      ),
       ),
     );
   }

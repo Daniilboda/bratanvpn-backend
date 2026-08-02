@@ -39,12 +39,25 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   late final AnimationController _spin;
   late final AnimationController _flash;
   late final AnimationController _settle;
+  late final AnimationController _extinguish;
 
   /// Absolute CCW spin angle (radians), continuous across handoff.
   double _spinAngle = 0;
   double _prevSpinValue = 0;
   /// Extra revolutions to coast through during settle (easeOut).
   static const double _settleCoastTurns = 0.55;
+  /// Soft clockwise unwind while dying.
+  static const double _extinguishCoastTurns = 0.28;
+
+  // Snapshots at disconnect so the fade does not jump.
+  double _extIntensity = 0;
+  double _extBloom = 0;
+  double _extRaysOpacity = 0;
+  double _extRaysScale = 1;
+  double _extAngle = 0;
+  double _extShimmer = 0;
+  double _extTexturePhase = 0;
+  double _extMedalScale = 1;
 
   @override
   void initState() {
@@ -69,6 +82,10 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
       vsync: this,
       duration: const Duration(milliseconds: 720),
     )..addStatusListener(_onSettleStatus);
+    _extinguish = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 820),
+    )..addStatusListener(_onExtinguishStatus);
 
     if (widget.connected) {
       _startBreathing();
@@ -84,11 +101,13 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     final isLit = widget.connected || widget.connecting;
 
     if (widget.connecting && !oldWidget.connecting && !widget.connected) {
+      _extinguish.stop();
       _beginConnecting();
     } else if (widget.connected && !oldWidget.connected) {
+      _extinguish.stop();
       _beginSettleToConnected();
     } else if (!isLit && wasLit) {
-      _resetAllFx();
+      _beginExtinguish(fromConnected: oldWidget.connected);
     }
   }
 
@@ -113,8 +132,17 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     }
   }
 
+  void _onExtinguishStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _hardResetFx();
+    }
+  }
+
   void _beginConnecting() {
     _settle
+      ..stop()
+      ..value = 0;
+    _extinguish
       ..stop()
       ..value = 0;
     _stopBreathing();
@@ -128,6 +156,54 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     _spin.stop();
     _startBreathing();
     _settle.forward(from: 0);
+  }
+
+  void _beginExtinguish({required bool fromConnected}) {
+    final breath = _sin01(_breath);
+    final settleRaw = fromConnected
+        ? (_settle.isAnimating ||
+                _settle.status == AnimationStatus.completed)
+            ? _settle.value
+            : 1.0
+        : 0.0;
+    final settleT = Curves.easeOutCubic.transform(settleRaw);
+
+    final connectIntensity = 0.9;
+    final connectedIntensity = 0.55 + 0.45 * breath;
+    _extIntensity = fromConnected
+        ? ui.lerpDouble(connectIntensity, connectedIntensity, settleT)!
+        : connectIntensity;
+    _extBloom = fromConnected
+        ? ui.lerpDouble(1.0, 0.85 + 0.35 * breath, settleT)!
+        : 1.0;
+    _extRaysOpacity =
+        fromConnected ? settleT * (0.45 + 0.55 * breath) : 0.0;
+    _extRaysScale = fromConnected
+        ? ui.lerpDouble(0.92, 1.0 + 0.04 * breath, settleT)!
+        : 1.0;
+    _extMedalScale = fromConnected
+        ? ui.lerpDouble(1.0, 1.0 + 0.012 * breath, settleT)!
+        : 1.0;
+    _extShimmer = fromConnected ? _sin01(_shimmer) : 0.7;
+    _extTexturePhase =
+        fromConnected ? _shimmer.value * math.pi * 2 : 0.0;
+
+    if (fromConnected &&
+        (_settle.isAnimating ||
+            _settle.status == AnimationStatus.completed)) {
+      _extAngle =
+          _spinAngle - settleT * _settleCoastTurns * math.pi * 2;
+    } else {
+      _extAngle = _spinAngle;
+    }
+
+    _spin.stop();
+    _flash.stop();
+    // Keep breath/shimmer frozen at snapshot — stop so values stay put.
+    _breath.stop();
+    _shimmer.stop();
+    _settle.stop();
+    _extinguish.forward(from: 0);
   }
 
   void _startBreathing() {
@@ -154,7 +230,7 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     }
   }
 
-  void _resetAllFx() {
+  void _hardResetFx() {
     _spin
       ..stop()
       ..value = 0;
@@ -166,6 +242,17 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
     _flash
       ..stop()
       ..value = 0;
+    _extinguish
+      ..stop()
+      ..value = 0;
+    _extIntensity = 0;
+    _extBloom = 0;
+    _extRaysOpacity = 0;
+    _extRaysScale = 1;
+    _extAngle = 0;
+    _extShimmer = 0;
+    _extTexturePhase = 0;
+    _extMedalScale = 1;
     _stopBreathing();
   }
 
@@ -173,11 +260,13 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   void dispose() {
     _spin.removeListener(_onSpinTick);
     _settle.removeStatusListener(_onSettleStatus);
+    _extinguish.removeStatusListener(_onExtinguishStatus);
     _breath.dispose();
     _shimmer.dispose();
     _spin.dispose();
     _flash.dispose();
     _settle.dispose();
+    _extinguish.dispose();
     super.dispose();
   }
 
@@ -199,133 +288,168 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
         onTapUp: (_) => setState(() => _pressed = false),
         onTapCancel: () => setState(() => _pressed = false),
         onTap: widget.onTap,
-        child: AnimatedScale(
-          scale: _pressed ? 0.94 : 1.0,
-          duration: const Duration(milliseconds: 90),
-          curve: Curves.easeOutCubic,
-          child: SizedBox(
-            key: widget.buttonKey,
-            width: hitSize,
-            height: hitSize,
-            child: AnimatedBuilder(
-              animation: Listenable.merge([
-                _breath,
-                _shimmer,
-                _spin,
-                _flash,
-                _settle,
-              ]),
-              builder: (context, _) {
-                final connected = widget.connected;
-                final connecting = widget.connecting && !connected;
-                final lit = connecting || connected;
+        child: SizedBox(
+          key: widget.buttonKey,
+          width: hitSize,
+          height: hitSize,
+          child: AnimatedBuilder(
+            animation: Listenable.merge([
+              _breath,
+              _shimmer,
+              _spin,
+              _flash,
+              _settle,
+              _extinguish,
+            ]),
+            builder: (context, _) {
+              final connected = widget.connected;
+              final connecting = widget.connecting && !connected;
+              final extinguishing =
+                  !connected && !connecting && _extinguish.value > 0;
+              final dying = Curves.easeInCubic.transform(_extinguish.value);
+              final alive = 1.0 - dying;
+              final lit = connecting || connected || extinguishing;
 
-                // 0 while connecting; ease 0→1 on handoff; 1 if already connected.
-                final settleRaw = !connected
-                    ? 0.0
-                    : (_settle.isAnimating ||
-                            _settle.status == AnimationStatus.completed)
-                        ? _settle.value
-                        : 1.0;
-                final settleT = Curves.easeOutCubic.transform(settleRaw);
-                final breath = connected ? _sin01(_breath) : 0.0;
-                final shimmer = connected ? _sin01(_shimmer) : 0.0;
+              // 0 while connecting; ease 0→1 on handoff; 1 if already connected.
+              final settleRaw = !connected
+                  ? 0.0
+                  : (_settle.isAnimating ||
+                          _settle.status == AnimationStatus.completed)
+                      ? _settle.value
+                      : 1.0;
+              final settleT = Curves.easeOutCubic.transform(settleRaw);
+              final breath = connected ? _sin01(_breath) : 0.0;
+              final shimmer = connected ? _sin01(_shimmer) : 0.0;
 
-                // Continuous spin while connecting; coast + ease to rest on settle.
-                final double spinAngle;
-                if (connecting) {
-                  spinAngle = _spinAngle;
-                } else if (connected &&
-                    (_settle.isAnimating ||
-                        _settle.status == AnimationStatus.completed)) {
-                  spinAngle = _spinAngle -
-                      settleT * _settleCoastTurns * math.pi * 2;
-                } else {
-                  spinAngle = 0.0;
-                }
+              // Continuous spin while connecting; coast + ease to rest on settle.
+              // On extinguish: soft clockwise unwind from snapshot.
+              final double spinAngle;
+              if (extinguishing) {
+                spinAngle =
+                    _extAngle + dying * _extinguishCoastTurns * math.pi * 2;
+              } else if (connecting) {
+                spinAngle = _spinAngle;
+              } else if (connected &&
+                  (_settle.isAnimating ||
+                      _settle.status == AnimationStatus.completed)) {
+                spinAngle =
+                    _spinAngle - settleT * _settleCoastTurns * math.pi * 2;
+              } else {
+                spinAngle = 0.0;
+              }
 
-                final texturePhase =
-                    connected ? _shimmer.value * math.pi * 2 : 0.0;
+              final texturePhase = extinguishing
+                  ? _extTexturePhase
+                  : connected
+                      ? _shimmer.value * math.pi * 2
+                      : 0.0;
 
-                final connectIntensity = 0.9;
-                final connectedIntensity = 0.55 + 0.45 * breath;
-                final intensity = connecting
-                    ? connectIntensity
-                    : connected
-                        ? ui.lerpDouble(
-                              connectIntensity,
-                              connectedIntensity,
-                              settleT,
-                            )!
-                        : 0.0;
+              final connectIntensity = 0.9;
+              final connectedIntensity = 0.55 + 0.45 * breath;
+              double intensity;
+              double bloomExtra;
+              double raysOpacity;
+              double raysScale;
+              double medalScale;
+              double smokeShimmer;
 
-                final bloomExtra = connecting
-                    ? 1.0
-                    : connected
-                        ? ui.lerpDouble(1.0, 0.85 + 0.35 * breath, settleT)!
-                        : 0.0;
+              if (extinguishing) {
+                // Soft die: intensity falls a bit faster than rays.
+                final glowAlive = math.pow(alive, 1.15).toDouble();
+                final raysAlive = math.pow(alive, 0.85).toDouble();
+                intensity = _extIntensity * glowAlive;
+                bloomExtra = _extBloom * (0.55 + 0.45 * glowAlive);
+                raysOpacity = _extRaysOpacity * raysAlive;
+                raysScale = ui.lerpDouble(_extRaysScale, 0.88, dying)!;
+                medalScale = ui.lerpDouble(_extMedalScale, 1.0, dying)!;
+                smokeShimmer = _extShimmer * alive;
+              } else if (connecting) {
+                intensity = connectIntensity;
+                bloomExtra = 1.0;
+                raysOpacity = 0.0;
+                raysScale = 1.0;
+                medalScale = 1.0;
+                smokeShimmer = 0.7;
+              } else if (connected) {
+                intensity = ui.lerpDouble(
+                  connectIntensity,
+                  connectedIntensity,
+                  settleT,
+                )!;
+                bloomExtra =
+                    ui.lerpDouble(1.0, 0.85 + 0.35 * breath, settleT)!;
+                raysOpacity = settleT * (0.45 + 0.55 * breath);
+                raysScale =
+                    ui.lerpDouble(0.92, 1.0 + 0.04 * breath, settleT)!;
+                medalScale =
+                    ui.lerpDouble(1.0, 1.0 + 0.012 * breath, settleT)!;
+                smokeShimmer = shimmer;
+              } else {
+                intensity = 0.0;
+                bloomExtra = 0.0;
+                raysOpacity = 0.0;
+                raysScale = 1.0;
+                medalScale = 1.0;
+                smokeShimmer = 0.0;
+              }
 
-                final raysOpacity = connected
-                    ? settleT * (0.45 + 0.55 * breath)
-                    : 0.0;
-                final raysScale = connected
-                    ? ui.lerpDouble(0.92, 1.0 + 0.04 * breath, settleT)!
-                    : 1.0;
+              final flashT = _flash.value;
+              final showFlash = flashT > 0 && flashT < 1;
 
-                final flashT = _flash.value;
-                final showFlash = flashT > 0 && flashT < 1;
-
-                return Stack(
-                  clipBehavior: Clip.none,
-                  alignment: Alignment.center,
-                  children: [
-                    Positioned(
-                      left: (hitSize - raysSize) / 2,
-                      top: (hitSize - raysSize) / 2,
-                      width: raysSize,
-                      height: raysSize,
-                      child: IgnorePointer(
-                        child: Opacity(
-                          opacity: raysOpacity,
-                          child: Transform.scale(
-                            scale: raysScale,
-                            child: Image.asset(
-                              DrakarMedallionButton.raysAsset,
-                              fit: BoxFit.contain,
-                              filterQuality: FilterQuality.high,
+              return Stack(
+                clipBehavior: Clip.none,
+                alignment: Alignment.center,
+                children: [
+                  Positioned(
+                    left: (hitSize - raysSize) / 2,
+                    top: (hitSize - raysSize) / 2,
+                    width: raysSize,
+                    height: raysSize,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: raysOpacity.clamp(0.0, 1.0),
+                        child: Transform.scale(
+                          scale: raysScale,
+                          child: Image.asset(
+                            DrakarMedallionButton.raysAsset,
+                            fit: BoxFit.contain,
+                            filterQuality: FilterQuality.high,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    left: (hitSize - glowSize) / 2,
+                    top: (hitSize - glowSize) / 2,
+                    width: glowSize,
+                    height: glowSize,
+                    child: IgnorePointer(
+                      child: Opacity(
+                        opacity: lit && intensity > 0.01 ? 1.0 : 0.0,
+                        child: Transform.rotate(
+                          angle: spinAngle,
+                          child: CustomPaint(
+                            size: Size.square(glowSize),
+                            painter: _TexturedGoldRimPainter(
+                              rimRadius: rimRadius,
+                              intensity: intensity,
+                              bloomExtra: bloomExtra,
+                              texturePhase: texturePhase,
+                              shimmer: smokeShimmer,
                             ),
                           ),
                         ),
                       ),
                     ),
-                    Positioned(
-                      left: (hitSize - glowSize) / 2,
-                      top: (hitSize - glowSize) / 2,
-                      width: glowSize,
-                      height: glowSize,
-                      child: IgnorePointer(
-                        child: Opacity(
-                          opacity: lit ? 1.0 : 0.0,
-                          child: Transform.rotate(
-                            angle: spinAngle,
-                            child: CustomPaint(
-                              size: Size.square(glowSize),
-                              painter: _TexturedGoldRimPainter(
-                                rimRadius: rimRadius,
-                                intensity: intensity,
-                                bloomExtra: bloomExtra,
-                                texturePhase: texturePhase,
-                                shimmer: connecting ? 0.7 : shimmer,
-                              ),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                    Transform.scale(
-                      scale: connected
-                          ? ui.lerpDouble(1.0, 1.0 + 0.012 * breath, settleT)!
-                          : 1.0,
+                  ),
+                  // Press scale only on the medallion — glow/rays stay put.
+                  AnimatedScale(
+                    scale: _pressed ? 0.94 : 1.0,
+                    duration: const Duration(milliseconds: 90),
+                    curve: Curves.easeOutCubic,
+                    child: Transform.scale(
+                      scale: medalScale,
                       child: Image.asset(
                         DrakarMedallionButton.medallionAsset,
                         width: hitSize,
@@ -334,26 +458,26 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                         filterQuality: FilterQuality.high,
                       ),
                     ),
-                    if (showFlash)
-                      Positioned(
-                        left: (hitSize - glowSize) / 2,
-                        top: (hitSize - glowSize) / 2,
-                        width: glowSize,
-                        height: glowSize,
-                        child: IgnorePointer(
-                          child: CustomPaint(
-                            size: Size.square(glowSize),
-                            painter: _IgnitionFlashPainter(
-                              progress: flashT,
-                              rimRadius: rimRadius,
-                            ),
+                  ),
+                  if (showFlash)
+                    Positioned(
+                      left: (hitSize - glowSize) / 2,
+                      top: (hitSize - glowSize) / 2,
+                      width: glowSize,
+                      height: glowSize,
+                      child: IgnorePointer(
+                        child: CustomPaint(
+                          size: Size.square(glowSize),
+                          painter: _IgnitionFlashPainter(
+                            progress: flashT,
+                            rimRadius: rimRadius,
                           ),
                         ),
                       ),
-                  ],
-                );
-              },
-            ),
+                    ),
+                ],
+              );
+            },
           ),
         ),
       ),
