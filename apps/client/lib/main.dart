@@ -729,7 +729,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 child: DragToMoveArea(child: SizedBox.expand()),
               ),
             Positioned(
-              top: 16,
+              top: 20,
               left: 8,
               child: IconButton(
                 tooltip: '',
@@ -746,7 +746,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             if (isDesktopShell)
               Positioned(
-                top: 16,
+                top: 20,
                 right: 8,
                 child: IconButton(
                   tooltip: '',
@@ -761,7 +761,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            // Hero stack: larger medallion, status tucked under (wordmark off for now).
+            // Wordmark centered between menu and close (same band as chrome icons).
+            Positioned(
+              top: 16,
+              left: 52,
+              right: 52,
+              height: 48,
+              child: IgnorePointer(
+                child: Center(
+                  child: Image.asset(
+                    'assets/drakar/wordmark.png',
+                    height: 26,
+                    fit: BoxFit.contain,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
+              ),
+            ),
+            // Hero stack: medallion + status under it.
             Align(
               alignment: const Alignment(0, -0.06),
               child: Column(

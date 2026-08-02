@@ -74,6 +74,7 @@ flutter:
     - assets/drakar/menu.png
     - assets/drakar/close.png
     - assets/drakar/flag_france.png
+    - assets/drakar/wordmark.png
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images
