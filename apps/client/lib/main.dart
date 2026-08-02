@@ -725,12 +725,12 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 left: 0,
                 right: 0,
                 top: 0,
-                height: 52,
+                height: 64,
                 child: DragToMoveArea(child: SizedBox.expand()),
               ),
             Positioned(
-              top: 4,
-              left: 4,
+              top: 16,
+              left: 8,
               child: IconButton(
                 tooltip: '',
                 onPressed: () {
@@ -746,8 +746,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             ),
             if (isDesktopShell)
               Positioned(
-                top: 4,
-                right: 4,
+                top: 16,
+                right: 8,
                 child: IconButton(
                   tooltip: '',
                   onPressed: () {
@@ -761,36 +761,24 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   ),
                 ),
               ),
-            Center(
+            // Hero stack: larger medallion, status tucked under (wordmark off for now).
+            Align(
+              alignment: const Alignment(0, -0.06),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  const Text(
-                    'BRATANVPN',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 22,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 3,
-                    ),
+                  DrakarMedallionButton(
+                    buttonKey: _powerButtonKey,
+                    connected: _connected,
+                    onTap: _onPowerPressed,
+                    diameter: 200,
                   ),
-                  const SizedBox(height: 28),
-                  // Rays need top room; keep status tight under the medallion.
-                  Padding(
-                    padding: const EdgeInsets.only(top: 40, bottom: 4),
-                    child: DrakarMedallionButton(
-                      buttonKey: _powerButtonKey,
-                      connected: _connected,
-                      onTap: _onPowerPressed,
-                      diameter: 168,
-                    ),
-                  ),
+                  const SizedBox(height: 12),
                   Text(
                     label,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: labelColor, // ← цвет надписи статуса
+                      color: labelColor,
                       fontSize: 11,
                       fontWeight: FontWeight.w700,
                       letterSpacing: 1.8,
@@ -801,8 +789,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                     _sessionLabel,
                     textAlign: TextAlign.center,
                     style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 13,
+                      color: Colors.white.withValues(alpha: 0.72),
+                      fontSize: 12,
                       fontWeight: FontWeight.w500,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -813,7 +801,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
             Positioned(
               left: 0,
               right: 0,
-              bottom: 24,
+              bottom: 28,
               child: DrakarServerCard(connected: _connected),
             ),
             if (_connectLightActive)

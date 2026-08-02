@@ -12,34 +12,54 @@ class DrakarServerCard extends StatelessWidget {
   static const String flagAsset = 'assets/drakar/flag_france.png';
   static const Color _online = Color(0xFF1CCB58);
   static const Color _offline = Color(0xFF6A6A6A);
+  // Darker well behind the flag (as on the Iceland ref).
+  static const Color _flagWell = Color(0xFF050505);
+  static const Color _cardFill = Color(0xFF0A0A0A);
 
   @override
   Widget build(BuildContext context) {
     final signalColor = connected ? _online : _offline;
 
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 20),
+      padding: const EdgeInsets.symmetric(horizontal: 22),
       child: Container(
-        height: 64,
-        padding: const EdgeInsets.symmetric(horizontal: 14),
+        height: 68,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         decoration: BoxDecoration(
-          color: const Color(0xFF141414),
-          borderRadius: BorderRadius.circular(16),
+          color: _cardFill,
+          borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: Colors.white.withValues(alpha: 0.08),
+            color: Colors.white.withValues(alpha: 0.06),
             width: 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.55),
+              blurRadius: 18,
+              offset: const Offset(0, 6),
+            ),
+          ],
         ),
         child: Row(
           children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Image.asset(
-                flagAsset,
-                width: 40,
-                height: 40,
-                fit: BoxFit.cover,
-                filterQuality: FilterQuality.high,
+            Container(
+              width: 44,
+              height: 44,
+              padding: const EdgeInsets.all(3),
+              decoration: BoxDecoration(
+                color: _flagWell,
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(9),
+                child: ColoredBox(
+                  color: _flagWell,
+                  child: Image.asset(
+                    flagAsset,
+                    fit: BoxFit.cover,
+                    filterQuality: FilterQuality.high,
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -54,23 +74,24 @@ class DrakarServerCard extends StatelessWidget {
                       color: Colors.white,
                       fontSize: 15,
                       fontWeight: FontWeight.w700,
-                      height: 1.2,
+                      height: 1.15,
                     ),
                   ),
-                  SizedBox(height: 2),
+                  SizedBox(height: 3),
                   Text(
                     'Paris #1',
                     style: TextStyle(
-                      color: Color(0xFF9A9A9A),
+                      color: Color(0xFF8E8E8E),
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
-                      height: 1.2,
+                      height: 1.15,
                     ),
                   ),
                 ],
               ),
             ),
             _SignalBars(color: signalColor),
+            const SizedBox(width: 4),
           ],
         ),
       ),
