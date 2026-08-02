@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-/// Static MVP server card (France / Paris #1). No chevron yet.
+/// Static MVP server card (France). No chevron yet.
 class DrakarServerCard extends StatelessWidget {
   const DrakarServerCard({
     super.key,
@@ -64,30 +64,14 @@ class DrakarServerCard extends StatelessWidget {
             ),
             const SizedBox(width: 12),
             const Expanded(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'France',
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                      height: 1.15,
-                    ),
-                  ),
-                  SizedBox(height: 3),
-                  Text(
-                    'Paris #1',
-                    style: TextStyle(
-                      color: Color(0xFF8E8E8E),
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      height: 1.15,
-                    ),
-                  ),
-                ],
+              child: Text(
+                'FRANCE',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 15,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                ),
               ),
             ),
             _SignalBars(color: signalColor),
