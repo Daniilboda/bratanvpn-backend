@@ -19,6 +19,7 @@ import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/vpn_tunnel_factory.dart';
 import 'package:client/shared/widgets/connecting_light_overlay.dart';
 import 'package:client/shared/widgets/drakar_medallion_button.dart';
+import 'package:client/shared/widgets/drakar_server_card.dart';
 
 /// Matches [assets/drakar/bg_texture.png] mean charcoal (window/scaffold fallback).
 const Color kDrakarBackground = Color(0xFF060606);
@@ -120,6 +121,9 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   static const Color _background = kDrakarBackground;
   static const String _bgTextureAsset = 'assets/drakar/bg_texture.png';
+  // Цвет статуса «ПОДКЛЮЧЕНО» — правь здесь (реф ≈ #1CCB58).
+  static const Color _statusConnected = Color(0xFF1CCB58);
+  static const Color _statusDisconnected = Color(0xFFB0B0B0);
   static const Duration _accessCheckPeriod = Duration(minutes: 15);
   static const Duration _tunnelHealthPeriod = Duration(seconds: 5);
 
@@ -692,7 +696,9 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   @override
   Widget build(BuildContext context) {
-    final label = _connected ? 'Подключено' : 'Подключиться';
+    final label = _connected ? 'ПОДКЛЮЧЕНО' : 'ОТКЛЮЧЕНО';
+    final labelColor =
+        _connected ? _statusConnected : _statusDisconnected;
 
     final isDesktopShell = widget.desktopShell != null;
 
@@ -728,12 +734,13 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               child: IconButton(
                 tooltip: '',
                 onPressed: () {
-                  // Экран настроек добавим позже.
+                  // Экран настроек / меню добавим позже.
                 },
-                icon: const Icon(
-                  Icons.settings,
-                  color: Colors.white,
-                  size: 26,
+                icon: Image.asset(
+                  'assets/drakar/menu.png',
+                  width: 26,
+                  height: 22,
+                  filterQuality: FilterQuality.high,
                 ),
               ),
             ),
@@ -746,10 +753,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   onPressed: () {
                     unawaited(widget.desktopShell!.hideToTray());
                   },
-                  icon: const Icon(
-                    Icons.close,
-                    color: Colors.white,
-                    size: 26,
+                  icon: Image.asset(
+                    'assets/drakar/close.png',
+                    width: 22,
+                    height: 22,
+                    filterQuality: FilterQuality.high,
                   ),
                 ),
               ),
@@ -767,10 +775,10 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       letterSpacing: 3,
                     ),
                   ),
-                  const SizedBox(height: 36),
-                  // Extra padding so sunburst rays are not clipped by neighbors.
+                  const SizedBox(height: 28),
+                  // Rays need top room; keep status tight under the medallion.
                   Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    padding: const EdgeInsets.only(top: 40, bottom: 4),
                     child: DrakarMedallionButton(
                       buttonKey: _powerButtonKey,
                       connected: _connected,
@@ -778,24 +786,23 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                       diameter: 168,
                     ),
                   ),
-                  const SizedBox(height: 8),
                   Text(
                     label,
                     textAlign: TextAlign.center,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 0.5,
+                    style: TextStyle(
+                      color: labelColor, // ← цвет надписи статуса
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.8,
                     ),
                   ),
-                  const SizedBox(height: 12),
+                  const SizedBox(height: 6),
                   Text(
                     _sessionLabel,
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.75),
-                      fontSize: 15,
+                      fontSize: 13,
                       fontWeight: FontWeight.w500,
                       fontFeatures: const [FontFeature.tabularFigures()],
                     ),
@@ -803,27 +810,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                 ],
               ),
             ),
-            const Positioned(
+            Positioned(
               left: 0,
               right: 0,
-              bottom: 28,
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('🇫🇷', style: TextStyle(fontSize: 28)),
-                  SizedBox(height: 6),
-                  Text(
-                    'Франция',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 14,
-                      fontWeight: FontWeight.w500,
-                      letterSpacing: 0.5,
-                    ),
-                  ),
-                ],
-              ),
+              bottom: 24,
+              child: DrakarServerCard(connected: _connected),
             ),
             if (_connectLightActive)
               Positioned.fill(
