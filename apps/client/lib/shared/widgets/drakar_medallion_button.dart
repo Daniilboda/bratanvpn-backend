@@ -9,11 +9,13 @@ class DrakarMedallionButton extends StatefulWidget {
     super.key,
     required this.connected,
     required this.onTap,
+    this.connecting = false,
     this.buttonKey,
     this.diameter = 168,
   });
 
   final bool connected;
+  final bool connecting;
   final VoidCallback onTap;
   final Key? buttonKey;
   final double diameter;
@@ -34,6 +36,15 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   bool _pressed = false;
   late final AnimationController _breath;
   late final AnimationController _shimmer;
+  late final AnimationController _spin;
+  late final AnimationController _flash;
+  late final AnimationController _settle;
+
+  /// Absolute CCW spin angle (radians), continuous across handoff.
+  double _spinAngle = 0;
+  double _prevSpinValue = 0;
+  /// Extra revolutions to coast through during settle (easeOut).
+  static const double _settleCoastTurns = 0.55;
 
   @override
   void initState() {
@@ -46,24 +57,86 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
       vsync: this,
       duration: const Duration(milliseconds: 7000),
     );
+    _spin = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 700),
+    )..addListener(_onSpinTick);
+    _flash = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 480),
+    );
+    _settle = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 720),
+    )..addStatusListener(_onSettleStatus);
+
     if (widget.connected) {
       _startBreathing();
+    } else if (widget.connecting) {
+      _beginConnecting();
     }
   }
 
   @override
   void didUpdateWidget(covariant DrakarMedallionButton oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.connected && !oldWidget.connected) {
-      _startBreathing();
-    } else if (!widget.connected && oldWidget.connected) {
-      _stopBreathing();
+    final wasLit = oldWidget.connected || oldWidget.connecting;
+    final isLit = widget.connected || widget.connecting;
+
+    if (widget.connecting && !oldWidget.connecting && !widget.connected) {
+      _beginConnecting();
+    } else if (widget.connected && !oldWidget.connected) {
+      _beginSettleToConnected();
+    } else if (!isLit && wasLit) {
+      _resetAllFx();
     }
   }
 
+  void _onSpinTick() {
+    // Accumulate continuous angle while spinning (handles wrap 1→0).
+    var delta = _spin.value - _prevSpinValue;
+    if (delta < -0.5) {
+      delta += 1.0;
+    }
+    _prevSpinValue = _spin.value;
+    if (_spin.isAnimating) {
+      _spinAngle -= delta * math.pi * 2; // negative = CCW on screen
+    }
+  }
+
+  void _onSettleStatus(AnimationStatus status) {
+    if (status == AnimationStatus.completed) {
+      _spin
+        ..stop()
+        ..value = 0;
+      _prevSpinValue = 0;
+    }
+  }
+
+  void _beginConnecting() {
+    _settle
+      ..stop()
+      ..value = 0;
+    _stopBreathing();
+    _prevSpinValue = _spin.value;
+    _startSpin();
+    _flash.forward(from: 0);
+  }
+
+  void _beginSettleToConnected() {
+    // Keep current angle; coast a fraction of a turn while easing to rest.
+    _spin.stop();
+    _startBreathing();
+    _settle.forward(from: 0);
+  }
+
   void _startBreathing() {
-    _breath.repeat();
-    _shimmer.repeat();
+    if (!_breath.isAnimating) {
+      _breath.repeat();
+    }
+    if (!_shimmer.isAnimating) {
+      _shimmer.repeat();
+    }
   }
 
   void _stopBreathing() {
@@ -75,14 +148,39 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
       ..value = 0;
   }
 
+  void _startSpin() {
+    if (!_spin.isAnimating) {
+      _spin.repeat();
+    }
+  }
+
+  void _resetAllFx() {
+    _spin
+      ..stop()
+      ..value = 0;
+    _prevSpinValue = 0;
+    _spinAngle = 0;
+    _settle
+      ..stop()
+      ..value = 0;
+    _flash
+      ..stop()
+      ..value = 0;
+    _stopBreathing();
+  }
+
   @override
   void dispose() {
+    _spin.removeListener(_onSpinTick);
+    _settle.removeStatusListener(_onSettleStatus);
     _breath.dispose();
     _shimmer.dispose();
+    _spin.dispose();
+    _flash.dispose();
+    _settle.dispose();
     super.dispose();
   }
 
-  /// Smooth inhale/exhale in 0..1 from a repeating 0..1 controller.
   double _sin01(AnimationController c) =>
       0.5 + 0.5 * math.sin(c.value * math.pi * 2);
 
@@ -90,7 +188,6 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
   Widget build(BuildContext context) {
     final raysSize = widget.diameter * 2.35;
     final hitSize = widget.diameter;
-    // Glow canvas matches rays so the faint veil can reach ray tips.
     final glowSize = raysSize;
     final rimRadius = hitSize / 2 * DrakarMedallionButton.contentRadiusFactor;
 
@@ -111,13 +208,72 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
             width: hitSize,
             height: hitSize,
             child: AnimatedBuilder(
-              animation: Listenable.merge([_breath, _shimmer]),
+              animation: Listenable.merge([
+                _breath,
+                _shimmer,
+                _spin,
+                _flash,
+                _settle,
+              ]),
               builder: (context, _) {
                 final connected = widget.connected;
+                final connecting = widget.connecting && !connected;
+                final lit = connecting || connected;
+
+                // 0 while connecting; ease 0→1 on handoff; 1 if already connected.
+                final settleRaw = !connected
+                    ? 0.0
+                    : (_settle.isAnimating ||
+                            _settle.status == AnimationStatus.completed)
+                        ? _settle.value
+                        : 1.0;
+                final settleT = Curves.easeOutCubic.transform(settleRaw);
                 final breath = connected ? _sin01(_breath) : 0.0;
                 final shimmer = connected ? _sin01(_shimmer) : 0.0;
-                // Slow drift for smoke angles (radians).
-                final texturePhase = connected ? _shimmer.value * math.pi * 2 : 0.0;
+
+                // Continuous spin while connecting; coast + ease to rest on settle.
+                final double spinAngle;
+                if (connecting) {
+                  spinAngle = _spinAngle;
+                } else if (connected &&
+                    (_settle.isAnimating ||
+                        _settle.status == AnimationStatus.completed)) {
+                  spinAngle = _spinAngle -
+                      settleT * _settleCoastTurns * math.pi * 2;
+                } else {
+                  spinAngle = 0.0;
+                }
+
+                final texturePhase =
+                    connected ? _shimmer.value * math.pi * 2 : 0.0;
+
+                final connectIntensity = 0.9;
+                final connectedIntensity = 0.55 + 0.45 * breath;
+                final intensity = connecting
+                    ? connectIntensity
+                    : connected
+                        ? ui.lerpDouble(
+                              connectIntensity,
+                              connectedIntensity,
+                              settleT,
+                            )!
+                        : 0.0;
+
+                final bloomExtra = connecting
+                    ? 1.0
+                    : connected
+                        ? ui.lerpDouble(1.0, 0.85 + 0.35 * breath, settleT)!
+                        : 0.0;
+
+                final raysOpacity = connected
+                    ? settleT * (0.45 + 0.55 * breath)
+                    : 0.0;
+                final raysScale = connected
+                    ? ui.lerpDouble(0.92, 1.0 + 0.04 * breath, settleT)!
+                    : 1.0;
+
+                final flashT = _flash.value;
+                final showFlash = flashT > 0 && flashT < 1;
 
                 return Stack(
                   clipBehavior: Clip.none,
@@ -130,10 +286,9 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                       height: raysSize,
                       child: IgnorePointer(
                         child: Opacity(
-                          // Breath: visibly dimmer ↔ brighter (was 0.72–1.0, too flat).
-                          opacity: connected ? (0.45 + 0.55 * breath) : 0.0,
+                          opacity: raysOpacity,
                           child: Transform.scale(
-                            scale: connected ? (1.0 + 0.04 * breath) : 1.0,
+                            scale: raysScale,
                             child: Image.asset(
                               DrakarMedallionButton.raysAsset,
                               fit: BoxFit.contain,
@@ -150,26 +305,27 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                       height: glowSize,
                       child: IgnorePointer(
                         child: Opacity(
-                          opacity: connected ? 1.0 : 0.0,
-                          child: CustomPaint(
-                            size: Size.square(glowSize),
-                            painter: _TexturedGoldRimPainter(
-                              rimRadius: rimRadius,
-                              intensity: connected
-                                  ? 0.55 + 0.45 * breath
-                                  : 0.0,
-                              bloomExtra: connected
-                                  ? 0.85 + 0.35 * breath
-                                  : 0.0,
-                              texturePhase: texturePhase,
-                              shimmer: shimmer,
+                          opacity: lit ? 1.0 : 0.0,
+                          child: Transform.rotate(
+                            angle: spinAngle,
+                            child: CustomPaint(
+                              size: Size.square(glowSize),
+                              painter: _TexturedGoldRimPainter(
+                                rimRadius: rimRadius,
+                                intensity: intensity,
+                                bloomExtra: bloomExtra,
+                                texturePhase: texturePhase,
+                                shimmer: connecting ? 0.7 : shimmer,
+                              ),
                             ),
                           ),
                         ),
                       ),
                     ),
                     Transform.scale(
-                      scale: connected ? (1.0 + 0.012 * breath) : 1.0,
+                      scale: connected
+                          ? ui.lerpDouble(1.0, 1.0 + 0.012 * breath, settleT)!
+                          : 1.0,
                       child: Image.asset(
                         DrakarMedallionButton.medallionAsset,
                         width: hitSize,
@@ -178,6 +334,22 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
                         filterQuality: FilterQuality.high,
                       ),
                     ),
+                    if (showFlash)
+                      Positioned(
+                        left: (hitSize - glowSize) / 2,
+                        top: (hitSize - glowSize) / 2,
+                        width: glowSize,
+                        height: glowSize,
+                        child: IgnorePointer(
+                          child: CustomPaint(
+                            size: Size.square(glowSize),
+                            painter: _IgnitionFlashPainter(
+                              progress: flashT,
+                              rimRadius: rimRadius,
+                            ),
+                          ),
+                        ),
+                      ),
                   ],
                 );
               },
@@ -186,6 +358,104 @@ class _DrakarMedallionButtonState extends State<DrakarMedallionButton>
         ),
       ),
     );
+  }
+}
+
+/// Brief gold-white burst from the medallion center outward.
+class _IgnitionFlashPainter extends CustomPainter {
+  _IgnitionFlashPainter({
+    required this.progress,
+    required this.rimRadius,
+  });
+
+  final double progress;
+  final double rimRadius;
+
+  static const Color _core = Color(0xFFFFF4D2);
+  static const Color _hot = Color(0xFFFFD27A);
+  static const Color _gold = Color(0xFFD4A017);
+  static const Color _ember = Color(0xFF8A5818);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (progress <= 0.001) return;
+
+    final center = Offset(size.width / 2, size.height / 2);
+    // Ease: snap bright, then soft decay.
+    final rise = (progress / 0.18).clamp(0.0, 1.0);
+    final fall = progress < 0.18
+        ? 1.0
+        : (1.0 - Curves.easeOutCubic.transform((progress - 0.18) / 0.82));
+    final opacity = rise * fall;
+    if (opacity <= 0.01) return;
+
+    // Expanding radius: starts inside disc, blows past the rim.
+    final expand = Curves.easeOutCubic.transform(progress);
+    final reach = rimRadius * (0.35 + 1.55 * expand);
+
+    // Soft outer wash.
+    canvas.drawCircle(
+      center,
+      reach * 1.15,
+      Paint()
+        ..color = _ember.withValues(alpha: 0.22 * opacity)
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 28),
+    );
+
+    // Main gold bloom.
+    canvas.drawCircle(
+      center,
+      reach,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          center,
+          reach,
+          [
+            _core.withValues(alpha: 0.95 * opacity),
+            _hot.withValues(alpha: 0.70 * opacity),
+            _gold.withValues(alpha: 0.38 * opacity),
+            _ember.withValues(alpha: 0.12 * opacity),
+            _ember.withValues(alpha: 0.0),
+          ],
+          const [0.0, 0.18, 0.42, 0.72, 1.0],
+        ),
+    );
+
+    // Hot core punch.
+    final coreR = rimRadius * (0.12 + 0.22 * (1.0 - expand * 0.65));
+    canvas.drawCircle(
+      center,
+      coreR,
+      Paint()
+        ..shader = ui.Gradient.radial(
+          center,
+          coreR,
+          [
+            Colors.white.withValues(alpha: 0.95 * opacity),
+            _core.withValues(alpha: 0.55 * opacity),
+            _hot.withValues(alpha: 0.0),
+          ],
+          const [0.0, 0.45, 1.0],
+        ),
+    );
+
+    // Thin expanding shock ring.
+    final ringR = rimRadius * (0.55 + 1.1 * expand);
+    canvas.drawCircle(
+      center,
+      ringR,
+      Paint()
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 3.5 + 6.0 * (1.0 - expand)
+        ..color = _hot.withValues(alpha: 0.45 * opacity * (1.0 - expand * 0.5))
+        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 4),
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _IgnitionFlashPainter oldDelegate) {
+    return oldDelegate.progress != progress ||
+        oldDelegate.rimRadius != rimRadius;
   }
 }
 
@@ -205,11 +475,10 @@ class _TexturedGoldRimPainter extends CustomPainter {
   final double texturePhase;
   final double shimmer;
 
-  // Цвета: 0xFFRRGGBB. Темнее рефа, текстура та же.
-  static const Color _deep = Color(0xFF3A1E01); // хвост снаружи
-  static const Color _mid = Color(0xFF8A5818); // дым обода (чуть насыщеннее)
-  static const Color _bright = Color(0xFFB07412); // плотнее у края
-  static const Color _hot = Color(0xFF9A6414); // уплотнения дыма
+  static const Color _deep = Color(0xFF3A1E01);
+  static const Color _mid = Color(0xFF8A5818);
+  static const Color _bright = Color(0xFFB07412);
+  static const Color _hot = Color(0xFF9A6414);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -218,9 +487,7 @@ class _TexturedGoldRimPainter extends CustomPainter {
     final center = Offset(size.width / 2, size.height / 2);
     final i = intensity.clamp(0.0, 1.0);
     final rim = rimRadius;
-    // Quiet secondary amplitude for living smoke (does not flash).
     final smokeBoost = 0.85 + 0.15 * shimmer;
-    // Core metrics stay tied to the medallion, not the full rays canvas.
     final medalDiameter =
         2 * rim / DrakarMedallionButton.contentRadiusFactor;
     final coreRef = medalDiameter * 1.65;
@@ -232,7 +499,6 @@ class _TexturedGoldRimPainter extends CustomPainter {
       ..addOval(Rect.fromCircle(center: center, radius: rim - 0.5));
     canvas.clipPath(outside);
 
-    // Faint veil to ray tips — barely visible, does not boost rim brightness.
     final veilReach = size.shortestSide / 2;
     final veilBreath = 0.7 + 0.3 * i;
     final veil = Paint()
@@ -258,7 +524,6 @@ class _TexturedGoldRimPainter extends CustomPainter {
       );
     canvas.drawCircle(center, veilReach, veil);
 
-    // Dense core bloom near the medallion rim only.
     final outerReach = rim + coreRef * 0.16 * bloomExtra;
 
     final bloom = Paint()

@@ -17,12 +17,15 @@ import 'package:client/services/vpn_session.dart';
 import 'package:client/services/vpn_session_api.dart';
 import 'package:client/services/vpn_tunnel.dart';
 import 'package:client/services/vpn_tunnel_factory.dart';
-import 'package:client/shared/widgets/connecting_light_overlay.dart';
 import 'package:client/shared/widgets/drakar_medallion_button.dart';
 import 'package:client/shared/widgets/drakar_server_card.dart';
 
 /// Matches [assets/drakar/bg_texture.png] mean charcoal (window/scaffold fallback).
 const Color kDrakarBackground = Color(0xFF060606);
+
+/// Android tunnel is often ready in <0.5s; keep connect halo spin this long
+/// so the feel matches Windows (~grow + settle of the old white pulse).
+const Duration kAndroidMinConnectSpin = Duration(milliseconds: 1700);
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -131,15 +134,11 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
   bool _keyActivated = false;
   bool _connected = false;
   bool _checkingAccess = false;
+  bool _connecting = false;
   bool _accessPollInFlight = false;
   bool _tunnelHealthInFlight = false;
-  bool _connectLightActive = false;
-  bool _connectLightHomeIn = false;
-  bool _connectLightAbort = false;
   /// Invalidates in-flight connect (revoke / new tap) so UI cannot get stuck.
   int _connectEpoch = 0;
-  String? _pendingAbortMessage;
-  Offset _powerButtonCenter = Offset.zero;
   final GlobalKey _powerButtonKey = GlobalKey();
   final GlobalKey _homeStackKey = GlobalKey();
   Duration _session = Duration.zero;
@@ -359,7 +358,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     bool showAlert = true,
   }) async {
     await DiagLog.instance.warn('access_blocked', {'msg': message});
-    // Cancel any in-flight connect / pulse so the power button unsticks.
+    // Cancel any in-flight connect so the power button unsticks.
     _connectEpoch++;
     try {
       await widget.vpnSession.disconnect();
@@ -374,11 +373,8 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
     _stopTunnelHealthPolling();
     _timer?.cancel();
     _timer = null;
-    _pendingAbortMessage = null;
     setState(() {
-      _connectLightActive = false;
-      _connectLightHomeIn = false;
-      _connectLightAbort = false;
+      _connecting = false;
       _keyActivated = false;
       _connected = false;
       _checkingAccess = false;
@@ -457,26 +453,22 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
 
   Future<void> _startTunnelAndConnect() async {
     final epoch = ++_connectEpoch;
-    _updatePowerButtonCenter();
-    // Immediate feedback: spark ignites at the button center.
+    // Immediate feedback: gold halo spins while the tunnel comes up.
     setState(() {
       _checkingAccess = true;
-      _connectLightActive = true;
-      _connectLightHomeIn = false;
-      _connectLightAbort = false;
+      _connecting = true;
     });
     try {
-      final pulseStartedAt = DateTime.now();
+      final spinStartedAt = DateTime.now();
       await widget.vpnSession.connect();
       if (!mounted || epoch != _connectEpoch) {
         await _safeDisconnect();
         return;
       }
-      // Android tunnel is often ready in <0.5s; keep the pulse as long as on Windows.
+      // Android tunnel is often ready in <0.5s; keep the spin as long as on Windows.
       if (!kIsWeb && Platform.isAndroid) {
-        final elapsed = DateTime.now().difference(pulseStartedAt);
-        final remaining =
-            ConnectingLightOverlay.androidMinPulse - elapsed;
+        final elapsed = DateTime.now().difference(spinStartedAt);
+        final remaining = kAndroidMinConnectSpin - elapsed;
         if (remaining > Duration.zero) {
           await Future<void>.delayed(remaining);
           if (!mounted || epoch != _connectEpoch) {
@@ -485,16 +477,18 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
           }
         }
       }
-      _updatePowerButtonCenter();
-      // Spark flares into the lit button.
-      setState(() => _connectLightHomeIn = true);
+      setState(() {
+        _connecting = false;
+        _checkingAccess = false;
+      });
+      _setConnected(true);
     } on AmneziaConfigException catch (error) {
       await DiagLog.instance.error('ui_connect_fail', {
         'kind': 'config_build',
         'msg': error.userMessage,
       });
       if (mounted && epoch == _connectEpoch) {
-        _abortConnectLight(error.userMessage);
+        _abortConnect(error.userMessage);
       }
     } on VpnSessionException catch (error) {
       await DiagLog.instance.error('ui_connect_fail', {
@@ -503,7 +497,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'msg': error.userMessage,
       });
       if (mounted && epoch == _connectEpoch) {
-        _abortConnectLight(error.userMessage);
+        _abortConnect(error.userMessage);
       }
     } on VpnConfigException catch (error) {
       await DiagLog.instance.error('ui_connect_fail', {
@@ -511,7 +505,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'msg': error.userMessage,
       });
       if (mounted && epoch == _connectEpoch) {
-        _abortConnectLight(error.userMessage);
+        _abortConnect(error.userMessage);
       }
     } on VpnTunnelException catch (error) {
       await DiagLog.instance.error('ui_connect_fail', {
@@ -519,7 +513,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'msg': error.userMessage,
       });
       if (mounted && epoch == _connectEpoch) {
-        _abortConnectLight(error.userMessage);
+        _abortConnect(error.userMessage);
       }
     } on Exception catch (error) {
       await DiagLog.instance.error('ui_connect_fail', {
@@ -527,7 +521,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
         'error': error.runtimeType,
       });
       if (mounted && epoch == _connectEpoch) {
-        _abortConnectLight('Не удалось запустить VPN.');
+        _abortConnect('Не удалось запустить VPN.');
       }
     }
   }
@@ -542,63 +536,19 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
       return;
     }
     setState(() {
-      _connectLightActive = false;
-      _connectLightHomeIn = false;
-      _connectLightAbort = false;
+      _connecting = false;
       _checkingAccess = false;
       _connected = false;
     });
   }
 
-  void _abortConnectLight(String message) {
+  void _abortConnect(String message) {
     setState(() {
-      _connectLightAbort = true;
-      _connectLightHomeIn = false;
-    });
-    _pendingAbortMessage = message;
-  }
-
-  void _updatePowerButtonCenter() {
-    final box =
-        _powerButtonKey.currentContext?.findRenderObject() as RenderBox?;
-    if (box == null || !box.hasSize) {
-      return;
-    }
-    final stackBox =
-        _homeStackKey.currentContext?.findRenderObject() as RenderBox?;
-    if (stackBox == null) {
-      return;
-    }
-    final global = box.localToGlobal(box.size.center(Offset.zero));
-    _powerButtonCenter = stackBox.globalToLocal(global);
-  }
-
-  void _onConnectLightSettled() {
-    if (!mounted) {
-      return;
-    }
-    setState(() {
-      _connectLightActive = false;
-      _connectLightHomeIn = false;
-      _connectLightAbort = false;
+      _connecting = false;
       _checkingAccess = false;
+      _connected = false;
     });
-    _setConnected(true);
-  }
-
-  void _onConnectLightAborted() {
-    if (!mounted) {
-      return;
-    }
-    final message = _pendingAbortMessage;
-    _pendingAbortMessage = null;
-    setState(() {
-      _connectLightActive = false;
-      _connectLightHomeIn = false;
-      _connectLightAbort = false;
-      _checkingAccess = false;
-    });
-    if (message != null && message.isNotEmpty) {
+    if (message.isNotEmpty) {
       unawaited(_showAccessAlert(message));
     }
   }
@@ -787,6 +737,7 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
                   DrakarMedallionButton(
                     buttonKey: _powerButtonKey,
                     connected: _connected,
+                    connecting: _connecting,
                     onTap: _onPowerPressed,
                     diameter: 200,
                   ),
@@ -821,21 +772,6 @@ class _HomePageState extends State<HomePage> with WidgetsBindingObserver {
               bottom: 28,
               child: DrakarServerCard(connected: _connected),
             ),
-            if (_connectLightActive)
-              Positioned.fill(
-                child: ConnectingLightOverlay(
-                  homeIn: _connectLightHomeIn,
-                  abort: _connectLightAbort,
-                  target: _powerButtonCenter == Offset.zero
-                      ? Offset(
-                          MediaQuery.sizeOf(context).width / 2,
-                          MediaQuery.sizeOf(context).height / 2,
-                        )
-                      : _powerButtonCenter,
-                  onSettled: _onConnectLightSettled,
-                  onAborted: _onConnectLightAborted,
-                ),
-              ),
               ],
             ),
           ),
